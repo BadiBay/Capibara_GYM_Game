@@ -1,0 +1,1924 @@
+    /* ═══════════════════════════════════════════════════════
+       ASSETS
+       ═══════════════════════════════════════════════════════ */
+    const CAPY_IMAGES = {
+      1: { body: new Image(), head: new Image(), armL: new Image(), armR: new Image() },
+      2: { body: new Image(), head: new Image(), armL: new Image(), armR: new Image() },
+      3: { body: new Image(), head: new Image(), armL: new Image(), armR: new Image() },
+      4: { body: new Image(), head: new Image(), armL: new Image(), armR: new Image() },
+      5: { body: new Image(), head: new Image(), armL: new Image(), armR: new Image(), bg: new Image() }
+    };
+
+    const tiersStr = ['noodles', 'noob', 'jock', 'gigachad', 'god'];
+    for (let i = 0; i < 5; i++) {
+      let t = i + 1;
+      CAPY_IMAGES[t].body.src = `${tiersStr[i]}_body.png`;
+      CAPY_IMAGES[t].head.src = `${tiersStr[i]}_head.png`;
+      CAPY_IMAGES[t].armL.src = `${tiersStr[i]}_arm_left.png`;
+      CAPY_IMAGES[t].armR.src = `${tiersStr[i]}_arm_right.png`;
+    }
+    CAPY_IMAGES[5].bg.src = 'god_bg.webp';
+
+    /* ═══════════════════════════════════════════════════════
+       YANDEX GAMES SDK
+       ═══════════════════════════════════════════════════════ */
+    let ysdk = null;
+    let player = null;
+    let leaderboards = null;
+    let lastAdTime = 0;
+
+    function showInterstitialAd() {
+      if (ysdk && ysdk.adv) {
+        const now = Date.now();
+        if (now - lastAdTime > 3 * 60 * 1000) { // 3 min cooldown
+          ysdk.adv.showFullscreenAdv({
+            callbacks: {
+              onClose: function (wasShown) { lastAdTime = Date.now(); },
+              onError: function (error) { }
+            }
+          });
+        }
+      }
+    }
+
+    function initYandexSDK() {
+      if (typeof YaGames !== 'undefined') {
+        YaGames.init().then(res => {
+          ysdk = res;
+          ysdk.features.LoadingAPI?.ready();
+
+          // Show rewarded btn if available
+          document.getElementById('rewarded-ad-btn').style.display = 'block';
+
+          // Show first ad
+          setTimeout(() => showInterstitialAd(), 2000);
+
+          ysdk.getPlayer().then(_player => {
+            player = _player;
+            loadGame(); // Reload from cloud if available
+          }).catch(err => {
+            console.error('Player error:', err);
+          });
+
+          if (ysdk.leaderboards) {
+            leaderboards = ysdk.leaderboards;
+          } else {
+            // Fallback для старых версий SDK
+            ysdk.getLeaderboards?.().then(_lb => {
+              leaderboards = _lb;
+            }).catch(err => console.error('Leaderboard error:', err));
+          }
+
+        }).catch(e => {
+          console.error('Yandex SDK Init Error', e);
+        });
+      } else {
+        console.log('Running locally without Yandex SDK');
+      }
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       LOCATIONS
+       ═══════════════════════════════════════════════════════ */
+    const LOCATIONS = [
+      { id: 'basement', name: 'Подвал', desc: 'Сыро, но здесь закаляется сталь.', multiplier: 1, reqTier: 1, bgImage: 'url("подвал.webp")' },
+      { id: 'elite', name: 'Элитный Фитнес', desc: 'Дорогие тренажеры, гламурные девчонки. x5 GP', multiplier: 5, reqTier: 3, bgImage: 'url("элитный зал.webp")' },
+      { id: 'beach', name: 'Пляж Майами', desc: 'Качайся под солнцем. x25 GP', multiplier: 25, reqTier: 4, bgImage: 'url("маями.webp")' },
+      { id: 'space', name: 'Качалка на Марсе', desc: 'Гравитация для слабаков. x100 GP', multiplier: 100, reqTier: 5, bgImage: 'url("марс.webp")' },
+    ];
+
+    /* ═══════════════════════════════════════════════════════
+       BOSSES (TOURNAMENTS)
+       ═══════════════════════════════════════════════════════ */
+    const BOSSES = [
+      { level: 1, name: 'Гусь-Задира', hp: 5000, reward: 10 },
+      { level: 2, name: 'Альфа-Кенгуру', hp: 250000, reward: 25 },
+      { level: 3, name: 'Крокодил-Качок', hp: 15000000, reward: 50 },
+      { level: 4, name: 'Медведь-Бодибилдер', hp: 1000000000, reward: 100 },
+      { level: 5, name: 'Гигачад-Кот', hp: 50000000000, reward: 500 },
+    ];
+    let currentTournament = null;
+
+    function getLocationMultiplier() {
+      const loc = LOCATIONS.find(l => l.id === (state.currentLocation || 'basement'));
+      return loc ? loc.multiplier : 1;
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       GAME STATE
+       ═══════════════════════════════════════════════════════ */
+    let state = {
+      gpCount: 0,
+      clickPower: 1,
+      autoPower: 0,
+      capyMassLevel: 1,
+      clickLevel: 0,
+      titaniumLevel: 0,
+      alienLevel: 0,
+      neutronLevel: 0,
+      autoLevel: 0,
+      shakeLevel: 0,
+      broLevel: 0,
+      trainerLevel: 0,
+      sponsorLevel: 0,
+      chainLevel: 0,
+      // costs scale ×1.15 to ×1.5 per level
+      clickCost: 10,
+      titaniumCost: 5000,
+      alienCost: 100000,
+      neutronCost: 5000000,
+      autoCost: 50,
+      shakeCost: 100,
+      broCost: 1000,
+      trainerCost: 10000,
+      sponsorCost: 250000,
+      chainCost: 10000000,
+      creatineLevel: 0,
+      creatineCost: 200,
+      pelicanLevel: 0,
+      pelicanCost: 500,
+      steroidsUnlocked: false,
+      steroidsCost: 1000,
+      steroidsActiveUntil: 0,
+      steroidsCooldownUntil: 0,
+      prestigeCoins: 0,
+      lastSaveTime: Date.now(),
+      soundEnabled: true,
+      totalClicks: 0,
+      totalGPEarned: 0,
+      totalPrestiges: 0,
+      goldenDumbbellsClicked: 0,
+      playStartTime: Date.now(),
+      unlockedAchievements: [],
+      // combo system
+      comboClicks: 0,
+      comboResetTime: 0,
+      comboMultiplier: 1,
+      comboActiveUntil: 0,
+      lastLoginDate: null,
+      loginStreak: 0,
+      dailyRewardClaimed: false,
+      // events
+      activeEvent: null,
+      activeEventUntil: 0,
+      // prestige tree
+      prestigeUpgrades: {},
+      tutorialStep: 0,
+      // Phase 10: Gems, Quests, Skins
+      gems: 0,
+      activeQuests: [],
+      questsCompleted: 0,
+      skins: [],
+      activeSkin: null,
+      retroGemsGiven: false,
+      currentLocation: 'basement',
+      tournamentLevel: 1,
+      tournamentCooldownUntil: 0,
+      lootboxBuffUntil: 0,
+      lootboxBuffMultiplier: 1,
+      // animation
+      squeezeT: 0,
+      liftAngle: 0,
+    };
+
+    function saveGame() {
+      state.lastSaveTime = Date.now();
+      const dataString = JSON.stringify(state);
+      localStorage.setItem('capybaraSave', dataString);
+
+      if (player) {
+        // Convert state to a flat object format if needed, but Yandex allows nested objects if stringified or just object
+        player.setData(state).then(() => {
+          // Saved to cloud
+        }).catch(() => { });
+      }
+
+      // Submit score to leaderboard
+      if (leaderboards && state.totalGPEarned) {
+        leaderboards.setLeaderboardScore('top_capybara', Math.floor(state.totalGPEarned)).catch(() => { });
+      }
+    }
+
+    function processSaveData(parsed) {
+      try {
+        state = { ...state, ...parsed };
+
+        // Daily Login Logic
+        const nowRaw = new Date();
+        const localDate = nowRaw.getFullYear() + '-' + String(nowRaw.getMonth() + 1).padStart(2, '0') + '-' + String(nowRaw.getDate()).padStart(2, '0');
+
+        if (state.lastLoginDate !== localDate) {
+          if (state.lastLoginDate) {
+            const lastRaw = new Date(state.lastLoginDate);
+            const diffTime = Math.abs(nowRaw - lastRaw);
+            const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+            if (diffDays > 1) {
+              state.loginStreak = 0; // reset streak if missed a day
+            }
+          }
+          state.dailyRewardClaimed = false;
+          state.lastLoginDate = localDate;
+        }
+
+        // Offline earnings calculation
+        const now = Date.now();
+        const secondsOffline = Math.floor((now - state.lastSaveTime) / 1000);
+        if (secondsOffline > 10 && state.autoPower > 0) {
+          let mult = 0.2;
+          if (state.prestigeUpgrades && state.prestigeUpgrades['offline_god']) mult = 1.0;
+          const earned = Math.floor(secondsOffline * state.autoPower * mult);
+          state.gpCount += earned;
+
+          const $modal = document.getElementById('offline-modal');
+          if ($modal) {
+            $modal.innerHTML = `С возвращением, бро!<br>Твоя капибара качалась, пока ты спал.<br>+${formatNum(earned)} GP`;
+            $modal.classList.add('show');
+            setTimeout(() => $modal.classList.remove('show'), 5000);
+          }
+        }
+
+        // Retroactive Gems for already completed achievements
+        if (!state.retroGemsGiven) {
+          if (state.unlockedAchievements && state.unlockedAchievements.length > 0) {
+            state.gems = (state.gems || 0) + state.unlockedAchievements.length;
+          }
+          state.retroGemsGiven = true;
+        }
+
+        // Fix english quests
+        if (state.activeQuests && state.activeQuests.some(q => q.desc.match(/[a-zA-Z]/))) {
+          state.activeQuests = [];
+        }
+
+        // Fix totalGPEarned if corrupted
+        if (isNaN(state.totalGPEarned) || state.totalGPEarned == null) {
+          state.totalGPEarned = 0;
+        }
+
+        state.lastSaveTime = Date.now();
+      } catch (e) {
+        console.error('Save file corrupted', e);
+      }
+    }
+
+    function loadGame() {
+      if (player) {
+        player.getData().then(data => {
+          if (Object.keys(data).length > 0) {
+            processSaveData(data);
+          } else {
+            loadFromLocal();
+          }
+        }).catch(() => loadFromLocal());
+      } else {
+        loadFromLocal();
+      }
+    }
+
+    function loadFromLocal() {
+      const saved = localStorage.getItem('capybaraSave');
+      if (saved) {
+        processSaveData(JSON.parse(saved));
+      }
+    }
+
+    loadGame();
+    initYandexSDK();
+    setInterval(saveGame, 10000); // Save every 10s to not spam Yandex API
+    window.addEventListener('beforeunload', saveGame);
+
+    /* ═══════════════════════════════════════════════════════
+       NUMBER FORMATTING
+       ═══════════════════════════════════════════════════════ */
+    const SUFFIXES = ['', 'K', 'M', 'B', 'T', 'Qa', 'Qi', 'Sx', 'Sp', 'Oc', 'No', 'Dc'];
+    function formatNum(n) {
+      if (n < 0) return '-' + formatNum(-n);
+      if (n < 1000) return Math.floor(n).toString();
+      let tier = Math.floor(Math.log10(n) / 3);
+      if (tier >= SUFFIXES.length) tier = SUFFIXES.length - 1;
+      const scaled = n / Math.pow(10, tier * 3);
+      return (scaled >= 100 ? Math.floor(scaled) : scaled.toFixed(1)) + SUFFIXES[tier];
+    }
+
+
+    /* ─── Shop Filters ──────────────────────────────────── */
+    function filterShop(category) {
+      const clickItems = ['card-click', 'card-titanium', 'card-alien', 'card-neutron'];
+      const autoItems = ['card-auto', 'card-shake', 'card-bro', 'card-trainer', 'card-sponsor', 'card-chain'];
+      const specialItems = ['card-creatine', 'card-pelican', 'card-steroids'];
+
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.toggle('active', b.dataset.filter === category));
+      document.querySelectorAll('.shop-card').forEach(card => {
+        if (card.id === 'card-prestige') return;
+
+        let isMatch = false;
+        if (category === 'all') isMatch = true;
+        else if (category === 'click' && clickItems.includes(card.id)) isMatch = true;
+        else if (category === 'auto' && autoItems.includes(card.id)) isMatch = true;
+        else if (category === 'special' && specialItems.includes(card.id)) isMatch = true;
+
+        card.classList.toggle('hidden-by-filter', !isMatch);
+      });
+    }
+
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => filterShop(btn.dataset.filter));
+    });
+
+    /* ─── Tier definitions ──────────────────────────────── */
+    const ACHIEVEMENTS = [
+      { id: 'first_blood', name: 'Первая Кровь', desc: 'Сделай первый клик.', icon: '💪', check: s => s.totalClicks >= 1 },
+      { id: 'maniac', name: 'Клик-Маньяк', desc: 'Кликни 1,000 раз.', icon: '⚡', check: s => s.totalClicks >= 1000 },
+      { id: 'passive', name: 'Пассивный Доход', desc: 'Достигни 1,000 Авто GP/с.', icon: '📈', check: s => s.autoPower >= 1000 },
+      { id: 'golden_touch', name: 'Золотое Касание', desc: 'Слови 5 Золотых Гантелей.', icon: '✨', check: s => s.goldenDumbbellsClicked >= 5 },
+      { id: 'gigachad', name: 'ГИГАЧАД', desc: 'Достигни Уровня Массы 4.', icon: '🗿', check: s => s.capyMassLevel >= 4 },
+      { id: 'olympus', name: 'Капи-Бог', desc: 'Достигни Уровня Массы 5.', icon: '👼', check: s => s.capyMassLevel >= 5 },
+      { id: 'prestige', name: 'Золотой Век', desc: 'Сделай Престиж в первый раз.', icon: '🌟', check: s => s.prestigeCoins >= 1 },
+    ];
+
+    function checkAchievements() {
+      let newUnlocked = false;
+      ACHIEVEMENTS.forEach(ach => {
+        if (!state.unlockedAchievements.includes(ach.id)) {
+          if (ach.check(state)) {
+            state.unlockedAchievements.push(ach.id);
+            state.gems = (state.gems || 0) + 1; // +1 Gem
+            showToast(`🏆 Открыто: ${ach.name}! (+1% к GP & 1 💎)`);
+            spawnConfetti();
+            beep(500, 0.1); setTimeout(() => beep(700, 0.3), 150);
+            newUnlocked = true;
+          }
+        }
+      });
+      if (newUnlocked) {
+        saveGame();
+        renderAchievements();
+        updateUI();
+      }
+    }
+
+    function showToast(text) {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      toast.className = 'toast';
+      toast.textContent = text;
+      container.appendChild(toast);
+      setTimeout(() => toast.remove(), 5000);
+    }
+
+    function renderStats() {
+      const $list = document.getElementById('stats-list');
+      const timePlayed = Math.floor((Date.now() - state.playStartTime) / 1000);
+      const m = Math.floor(timePlayed / 60);
+      const s = timePlayed % 60;
+
+      $list.innerHTML = `
+        <div style="margin-bottom:12px; font-size:1.1rem; color:var(--neon-blue);">
+          Времени в игре: <b>${m}м ${s}с</b>
+        </div>
+        <div style="margin-bottom:12px; font-size:1.1rem; color:var(--gold);">
+          Всего заработано GP: <b>${formatNum(state.totalGPEarned || 0)}</b>
+        </div>
+        <div style="margin-bottom:12px; font-size:1.1rem;">
+          Сделано кликов: <b>${formatNum(state.totalClicks || 0)}</b>
+        </div>
+        <div style="margin-bottom:12px; font-size:1.1rem; color:#ffbc00;">
+          Золотых гантелей: <b>${state.goldenDumbbellsClicked || 0}</b>
+        </div>
+        <div style="margin-bottom:12px; font-size:1.1rem; color:var(--neon-pink);">
+          Сделано престижей: <b>${state.totalPrestiges || 0}</b>
+        </div>
+        <div style="margin-bottom:12px; font-size:1.1rem;">
+          Уровень массы: <b>${state.capyMassLevel}</b>
+        </div>
+      `;
+    }
+
+    function renderAchievements() {
+      const list = document.getElementById('achievements-list');
+      if (!list) return;
+      list.innerHTML = '';
+      ACHIEVEMENTS.forEach(ach => {
+        const isUnlocked = state.unlockedAchievements.includes(ach.id);
+        list.innerHTML += `
+      <div class="ach-item ${isUnlocked ? 'unlocked' : ''}">
+        <div class="ach-icon">${isUnlocked ? ach.icon : '❓'}</div>
+        <div class="ach-info">
+          <h4>${isUnlocked ? ach.name : '???'}</h4>
+          <p>${isUnlocked ? ach.desc : 'Играй, чтобы открыть'}</p>
+        </div>
+      </div>
+    `;
+      });
+    }
+
+    /* ─── Tier definitions ──────────────────────────────── */
+    const TIERS = [
+      { level: 1, name: 'РУКИ-МАКАРОНИНЫ', color: '#ff6b6b', gpNeeded: 0 },
+      { level: 2, name: 'НОВИЧОК', color: '#ffa502', gpNeeded: 50 },
+      { level: 3, name: 'КАЧОК-КАПИ', color: '#ff2eaa', gpNeeded: 500 },
+      { level: 4, name: 'ГИГАЧАД', color: '#00e5ff', gpNeeded: 5000 },
+      { level: 5, name: 'КАПИ-БОГ', color: '#ffd700', gpNeeded: 50000 },
+    ];
+
+    /* ═══════════════════════════════════════════════════════
+       AUDIO — tiny Web Audio beep
+       ═══════════════════════════════════════════════════════ */
+    let audioCtx = null;
+    function beep(freq = 220, dur = 0.06) {
+      if (!state.soundEnabled) return;
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.18, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+        osc.connect(gain).connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + dur);
+      } catch (_) { }
+    }
+    function purchaseBeep() { beep(440, 0.08); setTimeout(() => beep(660, 0.08), 80); }
+
+    /* ═══════════════════════════════════════════════════════
+       DOM REFS
+       ═══════════════════════════════════════════════════════ */
+    const $gpCount = document.getElementById('gp-count');
+    const $liftBtn = document.getElementById('lift-btn');
+    const $buyClick = document.getElementById('buy-click');
+    const $buyTitanium = document.getElementById('buy-titanium');
+    const $buyAlien = document.getElementById('buy-alien');
+    const $buyNeutron = document.getElementById('buy-neutron');
+    const $buyAuto = document.getElementById('buy-auto');
+    const $buyShake = document.getElementById('buy-shake');
+    const $buyBro = document.getElementById('buy-bro');
+    const $buyTrainer = document.getElementById('buy-trainer');
+    const $buySponsor = document.getElementById('buy-sponsor');
+    const $buyChain = document.getElementById('buy-chain');
+
+    const $costClick = document.getElementById('cost-click');
+    const $costTitanium = document.getElementById('cost-titanium');
+    const $costAlien = document.getElementById('cost-alien');
+    const $costNeutron = document.getElementById('cost-neutron');
+    const $costAuto = document.getElementById('cost-auto');
+    const $costShake = document.getElementById('cost-shake');
+    const $costBro = document.getElementById('cost-bro');
+    const $costTrainer = document.getElementById('cost-trainer');
+    const $costSponsor = document.getElementById('cost-sponsor');
+    const $costChain = document.getElementById('cost-chain');
+
+    const $lvlClick = document.getElementById('lvl-click');
+    const $lvlTitanium = document.getElementById('lvl-titanium');
+    const $lvlAlien = document.getElementById('lvl-alien');
+    const $lvlNeutron = document.getElementById('lvl-neutron');
+    const $lvlAuto = document.getElementById('lvl-auto');
+    const $lvlShake = document.getElementById('lvl-shake');
+    const $lvlBro = document.getElementById('lvl-bro');
+    const $lvlTrainer = document.getElementById('lvl-trainer');
+    const $lvlSponsor = document.getElementById('lvl-sponsor');
+    const $lvlChain = document.getElementById('lvl-chain');
+    const $buyCreatine = document.getElementById('buy-creatine');
+    const $buyPelican = document.getElementById('buy-pelican');
+    const $buySteroids = document.getElementById('buy-steroids');
+    const $costCreatine = document.getElementById('cost-creatine');
+    const $costPelican = document.getElementById('cost-pelican');
+    const $costSteroids = document.getElementById('cost-steroids');
+    const $lvlCreatine = document.getElementById('lvl-creatine');
+    const $lvlPelican = document.getElementById('lvl-pelican');
+    const $lvlSteroids = document.getElementById('lvl-steroids');
+    const $statClick = document.getElementById('stat-click');
+    const $statAuto = document.getElementById('stat-auto');
+    const $statTier = document.getElementById('stat-tier');
+    const $tierBanner = document.getElementById('tier-banner');
+    const $stage = document.getElementById('stage');
+    const canvas = document.getElementById('gym-canvas');
+    const ctx = canvas.getContext('2d');
+
+    /* ═══════════════════════════════════════════════════════
+       CORE MECHANICS
+       ═══════════════════════════════════════════════════════ */
+    function getPrestigeMultiplier() {
+      let mult = 1 + state.prestigeCoins + (state.unlockedAchievements.length * 0.01);
+      // Prestige tree bonuses
+      if (state.prestigeUpgrades && state.prestigeUpgrades['golden_muscles']) mult *= 1.5;
+      return mult;
+    }
+    function getEffectiveClickPower() {
+      let p = state.clickPower;
+      if (state.creatineLevel > 0) {
+        p += Math.floor(state.autoPower * 0.1 * state.creatineLevel);
+      }
+      // Prestige tree: Faster Fingers
+      if (state.prestigeUpgrades && state.prestigeUpgrades['faster_fingers']) p *= 2;
+      return p * getPrestigeMultiplier();
+    }
+    function getEffectiveMultiplier() {
+      let steroidMult = (state.prestigeUpgrades && state.prestigeUpgrades['steroid_addict']) ? 20 : 10;
+      let mult = Date.now() < state.steroidsActiveUntil ? steroidMult : 1;
+      mult *= getLocationMultiplier();
+      if (Date.now() < (state.lootboxBuffUntil || 0)) {
+        mult *= state.lootboxBuffMultiplier;
+      }
+      return mult;
+    }
+
+    function updateCombo() {
+      const now = Date.now();
+      if (now > (state.comboResetTime || 0)) {
+        state.comboClicks = 0;
+        state.comboMultiplier = 1;
+        const $d = document.getElementById('combo-display');
+        if ($d) $d.classList.remove('active');
+        const $f = document.getElementById('combo-bar-fill');
+        if ($f) $f.style.width = '0%';
+      }
+
+      state.comboClicks = (state.comboClicks || 0) + 1;
+      state.comboResetTime = now + 1500; // 1.5s
+
+      let maxCombo = (state.prestigeUpgrades && state.prestigeUpgrades['combo_king']) ? 4 : 2;
+
+      if (state.comboClicks > 100) state.comboMultiplier = maxCombo;
+      else if (state.comboClicks > 50) state.comboMultiplier = Math.min(maxCombo, 2);
+      else state.comboMultiplier = 1;
+
+      state.comboActiveUntil = state.comboResetTime;
+
+      const $display = document.getElementById('combo-display');
+      const $bar = document.getElementById('combo-bar-fill');
+      if ($display && state.comboClicks > 10) {
+        $display.classList.add('active');
+        $display.textContent = `COMBO x${state.comboMultiplier}`;
+        $display.className = 'active'; // reset other classes
+        if (state.comboMultiplier >= 4) $display.classList.add('x10');
+        else if (state.comboMultiplier >= 2) $display.classList.add('x5');
+
+        let progress = 0;
+        if (state.comboClicks <= 50) progress = state.comboClicks / 50;
+        else if (state.comboClicks <= 100) progress = (state.comboClicks - 50) / 50;
+        else progress = 1;
+        if ($bar) $bar.style.width = `${progress * 100}%`;
+      }
+    }
+
+    let clickTimestamps = [];
+
+    function doRep() {
+      const now = Date.now();
+      clickTimestamps = clickTimestamps.filter(t => now - t < 1000);
+      
+      if (clickTimestamps.length >= 15) {
+        showToast("Слишком быстро! Пожалей мышку 🖱️");
+        return; // Античит: игнорируем клики, если их больше 15 в секунду
+      }
+      clickTimestamps.push(now);
+
+      let amt = getEffectiveClickPower();
+      let isCrit = false;
+      let critChance = state.pelicanLevel * 0.05;
+      if (state.prestigeUpgrades && state.prestigeUpgrades['crit_master']) critChance *= 2;
+      if (state.pelicanLevel > 0 && Math.random() < critChance) {
+        amt *= 5;
+        isCrit = true;
+        triggerShake();
+      }
+      amt *= getEffectiveMultiplier();
+      // Combo multiplier
+      if (Date.now() < state.comboActiveUntil) {
+        amt *= state.comboMultiplier;
+      }
+      // Event multiplier for clicks
+      if (state.activeEvent === 'motivator' && Date.now() < state.activeEventUntil) {
+        amt *= 2;
+      }
+
+      state.gpCount += amt;
+      state.totalGPEarned = (state.totalGPEarned || 0) + amt;
+      state.totalClicks++;
+      state.squeezeT = 1;
+      beep(180 + state.capyMassLevel * 40, 0.07);
+      spawnFloatGP(amt, isCrit);
+
+      if (currentTournament) {
+        currentTournament.hpLeft -= amt;
+        updateBossUI();
+      }
+
+      updateCombo();
+      updateUI();
+      checkAchievements();
+      if (typeof progressQuest === 'function') progressQuest('click');
+    }
+
+    function spawnFloatGP(amount, isCrit = false) {
+      const el = document.createElement('div');
+      el.className = 'float-gp';
+      if (isCrit) el.classList.add('crit');
+      el.textContent = `+${formatNum(amount)} GP`;
+      // random X spread around center
+      const rect = $stage.getBoundingClientRect();
+      const cx = rect.width / 2 + (Math.random() - 0.5) * 80;
+      const cy = rect.height * 0.42;
+      el.style.left = cx + 'px';
+      el.style.top = cy + 'px';
+      $stage.appendChild(el);
+      el.addEventListener('animationend', () => el.remove());
+    }
+
+    function triggerShake() {
+      $stage.classList.remove('shake');
+      void $stage.offsetWidth; // trigger reflow
+      $stage.classList.add('shake');
+      setTimeout(() => $stage.classList.remove('shake'), 300);
+    }
+
+    function spawnConfetti() {
+      const colors = ['#39ff14', '#ff2eaa', '#00e5ff', '#ffd700'];
+      for (let i = 0; i < 40; i++) {
+        const conf = document.createElement('div');
+        conf.className = 'confetti';
+        conf.style.left = Math.random() * 100 + '%';
+        conf.style.top = -10 + 'px';
+        conf.style.background = colors[Math.floor(Math.random() * colors.length)];
+        conf.style.animationDuration = (Math.random() * 2 + 1) + 's';
+        $stage.appendChild(conf);
+        setTimeout(() => conf.remove(), 3000);
+      }
+    }
+
+    function getDiscountedCost(cost) {
+      return (state.prestigeUpgrades && state.prestigeUpgrades['cheap_upgrades']) ? Math.floor(cost * 0.85) : cost;
+    }
+
+    function buyUpgrade(type) {
+      const initialGp = state.gpCount;
+      if (type === 'click' && state.gpCount >= getDiscountedCost(state.clickCost)) {
+        state.gpCount -= getDiscountedCost(state.clickCost);
+        state.clickLevel++;
+        state.clickPower++;
+        state.clickCost = Math.ceil(state.clickCost * 1.15);
+        purchaseBeep();
+      } else if (type === 'titanium' && state.gpCount >= getDiscountedCost(state.titaniumCost)) {
+        state.gpCount -= getDiscountedCost(state.titaniumCost);
+        state.titaniumLevel++;
+        state.clickPower += 50;
+        state.titaniumCost = Math.ceil(state.titaniumCost * 1.15);
+        purchaseBeep();
+      } else if (type === 'alien' && state.gpCount >= getDiscountedCost(state.alienCost)) {
+        state.gpCount -= getDiscountedCost(state.alienCost);
+        state.alienLevel++;
+        state.clickPower += 1000;
+        state.alienCost = Math.ceil(state.alienCost * 1.15);
+        purchaseBeep();
+      } else if (type === 'neutron' && state.gpCount >= getDiscountedCost(state.neutronCost)) {
+        state.gpCount -= getDiscountedCost(state.neutronCost);
+        state.neutronLevel++;
+        state.clickPower += 50000;
+        state.neutronCost = Math.ceil(state.neutronCost * 1.15);
+        purchaseBeep();
+      } else if (type === 'auto' && state.gpCount >= getDiscountedCost(state.autoCost)) {
+        state.gpCount -= getDiscountedCost(state.autoCost);
+        state.autoLevel++;
+        state.autoPower += 1;
+        state.autoCost = Math.ceil(state.autoCost * 1.15);
+        purchaseBeep();
+      } else if (type === 'shake' && state.gpCount >= getDiscountedCost(state.shakeCost)) {
+        state.gpCount -= getDiscountedCost(state.shakeCost);
+        state.shakeLevel++;
+        state.autoPower += 5;
+        state.shakeCost = Math.ceil(state.shakeCost * 1.15);
+        purchaseBeep();
+      } else if (type === 'bro' && state.gpCount >= getDiscountedCost(state.broCost)) {
+        state.gpCount -= getDiscountedCost(state.broCost);
+        state.broLevel++;
+        state.autoPower += 25;
+        state.broCost = Math.ceil(state.broCost * 1.15);
+        purchaseBeep();
+      } else if (type === 'trainer' && state.gpCount >= getDiscountedCost(state.trainerCost)) {
+        state.gpCount -= getDiscountedCost(state.trainerCost);
+        state.trainerLevel++;
+        state.autoPower += 250;
+        state.trainerCost = Math.ceil(state.trainerCost * 1.15);
+        purchaseBeep();
+      } else if (type === 'sponsor' && state.gpCount >= getDiscountedCost(state.sponsorCost)) {
+        state.gpCount -= getDiscountedCost(state.sponsorCost);
+        state.sponsorLevel++;
+        state.autoPower += 5000;
+        state.sponsorCost = Math.ceil(state.sponsorCost * 1.15);
+        purchaseBeep();
+      } else if (type === 'chain' && state.gpCount >= getDiscountedCost(state.chainCost)) {
+        state.gpCount -= getDiscountedCost(state.chainCost);
+        state.chainLevel++;
+        state.autoPower += 150000;
+        state.chainCost = Math.ceil(state.chainCost * 1.15);
+        purchaseBeep();
+      } else if (type === 'creatine' && state.gpCount >= getDiscountedCost(state.creatineCost)) {
+        state.gpCount -= getDiscountedCost(state.creatineCost);
+        state.creatineLevel++;
+        state.creatineCost = Math.ceil(state.creatineCost * 1.3);
+        purchaseBeep();
+      } else if (type === 'pelican' && state.pelicanLevel < 10 && state.gpCount >= getDiscountedCost(state.pelicanCost)) {
+        state.gpCount -= getDiscountedCost(state.pelicanCost);
+        state.pelicanLevel++;
+        state.pelicanCost = Math.ceil(state.pelicanCost * 1.5);
+        purchaseBeep();
+      } else if (type === 'steroids') {
+        if (!state.steroidsUnlocked && state.gpCount >= state.steroidsCost) {
+          state.gpCount -= state.steroidsCost;
+          state.steroidsUnlocked = true;
+          purchaseBeep();
+        } else if (state.steroidsUnlocked && Date.now() > state.steroidsCooldownUntil) {
+          const now = Date.now();
+          state.steroidsActiveUntil = now + getSteroidsDuration();
+          state.steroidsCooldownUntil = state.steroidsActiveUntil + 60000;
+          beep(880, 0.1); setTimeout(() => beep(880, 0.1), 150);
+        }
+      }
+      if (state.gpCount < initialGp) {
+        if (typeof progressQuest === 'function') progressQuest('buy');
+      }
+      checkTier();
+      updateUI();
+    }
+
+    function checkTier() {
+      let newTier = 1;
+      const totalEarned = (state.totalGPEarned || 0) > 0 ? state.totalGPEarned : (state.clickLevel * 10 + state.autoLevel * 50 + state.gpCount);
+      for (const t of TIERS) {
+        if (totalEarned >= t.gpNeeded) newTier = t.level;
+      }
+      if (newTier !== state.capyMassLevel) {
+        state.capyMassLevel = newTier;
+        resizeCanvas();
+        const tier = TIERS[newTier - 1];
+        $tierBanner.textContent = `TIER ${tier.level} — ${tier.name}`;
+        $tierBanner.style.color = tier.color;
+        $tierBanner.style.textShadow = `0 0 10px ${tier.color}80`;
+        triggerShake();
+        spawnConfetti();
+        beep(440, 0.1); setTimeout(() => beep(554, 0.1), 150); setTimeout(() => beep(659, 0.3), 300);
+      }
+    }
+
+    function updateUI() {
+      const fever = Date.now() < state.steroidsActiveUntil;
+      document.body.classList.toggle('fever', fever);
+
+      $gpCount.textContent = formatNum(Math.floor(state.gpCount));
+      document.getElementById('gem-count').textContent = formatNum(state.gems || 0);
+      document.getElementById('wardrobe-gems').textContent = `Алмазы: ${state.gems || 0} 💎`;
+      $costClick.textContent = `Цена: ${formatNum(getDiscountedCost(state.clickCost))} GP`;
+      $costTitanium.textContent = `Цена: ${formatNum(getDiscountedCost(state.titaniumCost))} GP`;
+      $costAlien.textContent = `Цена: ${formatNum(getDiscountedCost(state.alienCost))} GP`;
+      $costNeutron.textContent = `Цена: ${formatNum(getDiscountedCost(state.neutronCost))} GP`;
+
+      $costAuto.textContent = `Цена: ${formatNum(getDiscountedCost(state.autoCost))} GP`;
+      $costShake.textContent = `Цена: ${formatNum(getDiscountedCost(state.shakeCost))} GP`;
+      $costBro.textContent = `Цена: ${formatNum(getDiscountedCost(state.broCost))} GP`;
+      $costTrainer.textContent = `Цена: ${formatNum(getDiscountedCost(state.trainerCost))} GP`;
+      $costSponsor.textContent = `Цена: ${formatNum(getDiscountedCost(state.sponsorCost))} GP`;
+      $costChain.textContent = `Цена: ${formatNum(getDiscountedCost(state.chainCost))} GP`;
+
+      $lvlClick.textContent = `Уровень ${state.clickLevel}`;
+      $lvlTitanium.textContent = `Уровень ${state.titaniumLevel}`;
+      $lvlAlien.textContent = `Уровень ${state.alienLevel}`;
+      $lvlNeutron.textContent = `Уровень ${state.neutronLevel}`;
+      $lvlAuto.textContent = `Уровень ${state.autoLevel}`;
+      $lvlShake.textContent = `Уровень ${state.shakeLevel}`;
+      $lvlBro.textContent = `Уровень ${state.broLevel}`;
+      $lvlTrainer.textContent = `Уровень ${state.trainerLevel}`;
+      $lvlSponsor.textContent = `Уровень ${state.sponsorLevel}`;
+      $lvlChain.textContent = `Уровень ${state.chainLevel}`;
+
+      $costCreatine.textContent = `Цена: ${formatNum(getDiscountedCost(state.creatineCost))} GP`;
+      $costPelican.textContent = state.pelicanLevel >= 10 ? 'МАКС' : `Цена: ${formatNum(getDiscountedCost(state.pelicanCost))} GP`;
+      $lvlCreatine.textContent = `Уровень ${state.creatineLevel}`;
+      $lvlPelican.textContent = `Уровень ${state.pelicanLevel}/10`;
+
+      $buyClick.disabled = state.gpCount < getDiscountedCost(state.clickCost);
+      $buyTitanium.disabled = state.gpCount < state.titaniumCost;
+      $buyAlien.disabled = state.gpCount < state.alienCost;
+      $buyNeutron.disabled = state.gpCount < state.neutronCost;
+
+      $buyAuto.disabled = state.gpCount < state.autoCost;
+      $buyShake.disabled = state.gpCount < state.shakeCost;
+      $buyBro.disabled = state.gpCount < state.broCost;
+      $buyTrainer.disabled = state.gpCount < state.trainerCost;
+      $buySponsor.disabled = state.gpCount < state.sponsorCost;
+      $buyChain.disabled = state.gpCount < state.chainCost;
+
+      $buyCreatine.disabled = state.gpCount < state.creatineCost;
+      $buyPelican.disabled = state.gpCount < state.pelicanCost || state.pelicanLevel >= 10;
+
+      if (!state.steroidsUnlocked) {
+        $buySteroids.textContent = 'ОТКРЫТЬ';
+        $buySteroids.disabled = state.gpCount < state.steroidsCost;
+        $costSteroids.textContent = `Цена: ${formatNum(state.steroidsCost)} GP`;
+      } else {
+        $costSteroids.textContent = 'Открыто';
+        $lvlSteroids.textContent = 'Готов';
+        const now = Date.now();
+        if (now < state.steroidsActiveUntil) {
+          $buySteroids.textContent = 'АКТИВНО';
+          $buySteroids.disabled = true;
+          $lvlSteroids.textContent = `${Math.ceil((state.steroidsActiveUntil - now) / 1000)}с`;
+        } else if (now < state.steroidsCooldownUntil) {
+          $buySteroids.textContent = 'ЖДИ';
+          $buySteroids.disabled = true;
+          $lvlSteroids.textContent = `${Math.ceil((state.steroidsCooldownUntil - now) / 1000)}с`;
+        } else {
+          $buySteroids.textContent = 'ЮЗАТЬ';
+          $buySteroids.disabled = false;
+        }
+      }
+
+      const totalCoinsEarned = Math.floor(Math.cbrt((state.totalGPEarned || 0) / 50000));
+      const coinsToGet = Math.max(0, totalCoinsEarned - state.prestigeCoins);
+      const $cardPrestige = document.getElementById('card-prestige');
+      if (state.capyMassLevel >= 5 || state.prestigeCoins > 0 || coinsToGet > 0) {
+        $cardPrestige.style.display = 'block';
+        document.getElementById('prestige-reward').textContent = coinsToGet;
+        document.getElementById('btn-prestige').disabled = coinsToGet === 0;
+      } else {
+        $cardPrestige.style.display = 'none';
+      }
+
+      const $statCoinsWrap = document.getElementById('stat-coins-wrap');
+      if (state.prestigeCoins > 0) {
+        $statCoinsWrap.style.display = 'block';
+        document.getElementById('stat-coins').textContent = state.prestigeCoins;
+      } else {
+        $statCoinsWrap.style.display = 'none';
+      }
+
+      $statClick.textContent = formatNum(getEffectiveClickPower());
+      $statAuto.textContent = formatNum(state.autoPower * getPrestigeMultiplier());
+      $statTier.textContent = state.capyMassLevel;
+
+      // Show prestige tree button when coins > 0
+      const $ptBtn = document.getElementById('prestige-tree-btn');
+      if (state.prestigeCoins > 0 || (state.prestigeUpgrades && Object.keys(state.prestigeUpgrades).length > 0)) {
+        $ptBtn.style.display = 'inline-block';
+      }
+
+      // Update Tournament Button
+      const $tournBtn = document.getElementById('tournament-btn');
+      const now = Date.now();
+      if (state.tournamentCooldownUntil > now) {
+        $tournBtn.classList.add('cooldown');
+        const mins = Math.floor((state.tournamentCooldownUntil - now) / 60000);
+        const secs = Math.floor(((state.tournamentCooldownUntil - now) % 60000) / 1000);
+        $tournBtn.title = `Кулдаун: ${mins}:${secs < 10 ? '0' : ''}${secs}`;
+      } else {
+        $tournBtn.classList.remove('cooldown');
+        $tournBtn.title = `Турнир (Ур. ${state.tournamentLevel})`;
+      }
+
+      // Обновляем фон при каждом обновлении UI, а не 60 раз в секунду
+      const loc = LOCATIONS.find(l => l.id === (state.currentLocation || 'basement')) || LOCATIONS[0];
+      $stage.style.backgroundImage = loc.bgImage;
+      $stage.style.backgroundSize = 'cover';
+      $stage.style.backgroundPosition = 'center bottom';
+    }
+
+    function doPrestige() {
+      const totalCoinsEarned = Math.floor(Math.cbrt((state.totalGPEarned || 0) / 50000));
+      const coinsToGet = Math.max(0, totalCoinsEarned - state.prestigeCoins);
+      if (coinsToGet > 0) {
+        if (!confirm(`Ты уверен, что хочешь сделать Престиж? Твой прогресс сбросится, но ты получишь ${coinsToGet} Золотых Монет (+${coinsToGet * 100}% к GP навсегда)!`)) return;
+        state.prestigeCoins += coinsToGet;
+        state.totalPrestiges = (state.totalPrestiges || 0) + 1;
+
+        // Reset state
+        state.gpCount = (state.prestigeUpgrades && state.prestigeUpgrades['golden_start']) ? 1000 : 0;
+        state.clickPower = 1;
+        state.autoPower = 0;
+        state.capyMassLevel = 1;
+        state.clickLevel = 0;
+        state.titaniumLevel = 0;
+        state.alienLevel = 0;
+        state.neutronLevel = 0;
+        state.autoLevel = 0;
+        state.shakeLevel = 0;
+        state.broLevel = 0;
+        state.trainerLevel = 0;
+        state.sponsorLevel = 0;
+        state.chainLevel = 0;
+        state.clickCost = 10;
+        state.titaniumCost = 5000;
+        state.alienCost = 100000;
+        state.neutronCost = 5000000;
+        state.autoCost = 50;
+        state.shakeCost = 100;
+        state.broCost = 1000;
+        state.trainerCost = 10000;
+        state.sponsorCost = 250000;
+        state.chainCost = 10000000;
+        state.creatineLevel = 0;
+        state.creatineCost = 200;
+        state.pelicanLevel = 0;
+        state.pelicanCost = 500;
+        state.steroidsUnlocked = false;
+        state.steroidsCost = 1000;
+        state.steroidsActiveUntil = 0;
+        state.steroidsCooldownUntil = 0;
+
+        saveGame();
+        checkTier();
+        updateUI();
+        checkAchievements();
+        spawnConfetti();
+        spawnConfetti();
+        triggerShake();
+        beep(200, 0.2); setTimeout(() => beep(300, 0.2), 200); setTimeout(() => beep(400, 0.4), 400);
+      }
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       CANVAS DRAWING — Capybara + Gym
+       ═══════════════════════════════════════════════════════ */
+    function resizeCanvas() {
+      const rect = $stage.getBoundingClientRect();
+      if (!rect || rect.width === 0) return;
+
+      // Адаптивный масштаб для каждого тира (настраиваем "безопасную зону")
+      // Если капибара будет больше этих значений, она обрежется по краям.
+      const tier = (typeof state !== 'undefined' && state.capyMassLevel) ? state.capyMassLevel : 1;
+      let capyW = 350, capyH = 450;
+      if (tier === 2) { capyW = 450; capyH = 550; }
+      else if (tier === 3) { capyW = 550; capyH = 650; } // Качок
+      else if (tier === 4) { capyW = 800; capyH = 750; } // Гигачад
+      else if (tier >= 5) { capyW = 750; capyH = 750; } // Бог
+
+      let scale = 1;
+      if (rect.width > 0 && rect.height > 0) {
+        const scaleX = capyW / rect.width;
+        const scaleY = capyH / (rect.height * 0.78); // 0.78 это наш floorY
+
+        // Берём максимальный масштаб, чтобы гарантированно влезть и по ширине, и по высоте.
+        // Немного уменьшаем его (0.95), чтобы капибара была чуть-чуть крупнее (массивнее), 
+        // допуская лёгкое обрезание размаха рук.
+        scale = Math.max(1, scaleX, scaleY) * 0.95;
+      }
+
+      const logicW = rect.width * scale;
+      const logicH = rect.height * scale;
+
+      canvas.width = logicW * devicePixelRatio;
+      canvas.height = logicH * devicePixelRatio;
+
+      canvas.style.width = rect.width + 'px';
+      canvas.style.height = rect.height + 'px';
+
+      // Оставляем только devicePixelRatio, чтобы не было двойного масштабирования
+      ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    function drawFrame(ts) {
+      const W = canvas.width / devicePixelRatio;
+      const H = canvas.height / devicePixelRatio;
+      ctx.clearRect(0, 0, W, H);
+
+      // ── Floor / platform ──
+      const floorY = H * 0.78;
+      // Отрисовка пола удалена, так как теперь используются картинки фонов.
+
+      // ── Squeeze animation decay & Auto Animation ──
+      if (state.squeezeT > 0) state.squeezeT = Math.max(0, state.squeezeT - 0.06);
+
+      if (state.autoPower > 0) {
+        const speed = 0.05 + Math.min(0.25, state.autoPower * 0.005);
+        state.autoAnimPhase = (state.autoAnimPhase || 0) + speed;
+      } else {
+        state.autoAnimPhase = 0;
+      }
+
+      const autoSqueeze = state.autoPower > 0 ? (Math.sin(state.autoAnimPhase) + 1) / 2 : 0;
+      const squeeze = Math.max(state.squeezeT, autoSqueeze * 0.85);
+
+      // ── Capybara dimensions by tier ──
+      const tier = state.capyMassLevel;
+      let bodyW, bodyH, headR, earR, legW, legH, armW, armLen;
+      if (tier === 1) {
+        bodyW = 60; bodyH = 80;
+        headR = 26; earR = 8;
+        legW = 10; legH = 30;
+        armW = 8; armLen = 40;
+      } else if (tier === 2) {
+        bodyW = 90; bodyH = 85;
+        headR = 30; earR = 9;
+        legW = 14; legH = 30;
+        armW = 14; armLen = 48;
+      } else if (tier === 3) {
+        bodyW = 150; bodyH = 100;
+        headR = 34; earR = 10;
+        legW = 20; legH = 32;
+        armW = 24; armLen = 60;
+      } else if (tier === 4) {
+        bodyW = 200; bodyH = 120;
+        headR = 40; earR = 12;
+        legW = 26; legH = 36;
+        armW = 34; armLen = 75;
+      } else {
+        bodyW = 260; bodyH = 140;
+        headR = 46; earR = 14;
+        legW = 34; legH = 40;
+        armW = 46; armLen = 90;
+      }
+
+      const cx = W / 2;
+      const cy = floorY;
+      const squishX = 1 + squeeze * 0.12;
+      const squishY = 1 - squeeze * 0.08;
+
+      // Aura for tier 4+
+      if (tier === 5) {
+        ctx.save();
+        const bodyBottom = -legH;
+        const bodyTop = bodyBottom - bodyH;
+        let b_h = bodyH * 3.5;
+        let b_dy = -220;
+        let centerY = bodyTop + b_dy + b_h / 2;
+
+        const time = Date.now() / 1000;
+        // Эффект плавного плавания вокруг капибары
+        const offsetX = Math.sin(time) * 15;
+        const offsetY = Math.cos(time * 1.3) * 15;
+
+        ctx.translate(cx + offsetX, cy + centerY + offsetY);
+        // Медленное вращение ровно вокруг своего центра
+        ctx.rotate(time * 0.2);
+
+        const bgImg = CAPY_IMAGES[5].bg;
+        let aw = 700, ah = 700;
+        if (bgImg.width && bgImg.height) {
+          const aspect = bgImg.width / bgImg.height;
+          if (aspect > 1) { aw = 700; ah = 700 / aspect; }
+          else { ah = 700; aw = 700 * aspect; }
+        }
+        ctx.drawImage(bgImg, -aw / 2, -ah / 2, aw, ah);
+        ctx.restore();
+      }
+
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.scale(squishX, squishY);
+
+      const imgSet = CAPY_IMAGES[tier] || CAPY_IMAGES[5];
+      const bodyBottom = -legH;
+      const bodyTop = bodyBottom - bodyH;
+      const armY = bodyTop + bodyH * 0.25;
+      const headY = bodyTop - headR * 0.65;
+
+      let liftAng = squeeze * 0.5; // Базовая амплитуда качания
+
+      // ── НАСТРОЙКИ ОТРИСОВКИ ДЛЯ КАЖДОГО УРОВНЯ ──
+      // Вы можете изменять цифры ниже для подгонки позиций и размеров
+      let b_w, b_h, b_dy;
+      let al_cx, al_cy, al_rot, al_ox, al_oy, al_w, al_h, al_lift;
+      let ar_cx, ar_cy, ar_rot, ar_ox, ar_oy, ar_w, ar_h, ar_lift;
+      let h_w, h_h, h_dy;
+
+      if (tier === 1) {
+        // Уровень 1 (noodles)
+        b_w = bodyW * 2.5; b_h = bodyH * 2.5; b_dy = -30;
+        al_cx = -87; al_cy = armY - 25; al_rot = 0.1; al_ox = -45; al_oy = -15; al_w = 90; al_h = 160; al_lift = squeeze * 0.5;
+        ar_cx = 87; ar_cy = armY - 25; ar_rot = -0.1; ar_ox = -45; ar_oy = -15; ar_w = 90; ar_h = 160; ar_lift = squeeze * 0.5;
+        h_w = headR * 6.5; h_h = headR * 6.5; h_dy = -87;
+      } else if (tier === 2) {
+        // Уровень 2 (noob)
+        b_w = bodyW * 2; b_h = bodyH * 4; b_dy = -130;
+        al_cx = -170; al_cy = armY - 98; al_rot = -0.1; al_ox = -45; al_oy = -20; al_w = 180; al_h = 240; al_lift = squeeze * 0.3;
+        ar_cx = 80; ar_cy = armY - 108; ar_rot = 0.1; ar_ox = -45; ar_oy = -20; ar_w = 180; ar_h = 240; ar_lift = squeeze * 0.3;
+        h_w = headR * 6.5; h_h = headR * 6.5; h_dy = -187;
+      } else if (tier === 3) {
+        // Уровень 3 (jock)
+        b_w = bodyW * 1.8; b_h = bodyH * 4; b_dy = -180;
+        al_cx = -240; al_cy = armY - 190; al_rot = 0.1; al_ox = -55; al_oy = -15; al_w = 260; al_h = 310; al_lift = squeeze * 0.2;
+        ar_cx = 100; ar_cy = armY - 175; ar_rot = -0.1; ar_ox = -55; ar_oy = -15; ar_w = 260; ar_h = 310; ar_lift = squeeze * 0.2;
+        h_w = headR * 8.3; h_h = headR * 8.3; h_dy = -240;
+      } else if (tier === 4) {
+        // Уровень 4 (gigachad)
+        b_w = bodyW * 2; b_h = bodyH * 4.2; b_dy = -260;
+        al_cx = -160; al_cy = armY - 225; al_rot = 0.1; al_ox = -340; al_oy = -30; al_w = 380; al_h = 400; al_lift = squeeze * 0.15;
+        ar_cx = 160; ar_cy = armY - 225; ar_rot = -0.1; ar_ox = -35; ar_oy = -30; ar_w = 380; ar_h = 400; ar_lift = squeeze * 0.15;
+        h_w = headR * 4.5; h_h = headR * 4.5; h_dy = -217;
+      } else {
+        // Уровень 5 (god)
+        b_w = bodyW * 1.4; b_h = bodyH * 3.5; b_dy = -220;
+        al_cx = -180; al_cy = armY - 205; al_rot = 0.1; al_ox = -277; al_oy = -30; al_w = 380; al_h = 400; al_lift = squeeze * 0.1;
+        ar_cx = 180; ar_cy = armY - 205; ar_rot = -0.1; ar_ox = -107; ar_oy = -30; ar_w = 380; ar_h = 400; ar_lift = squeeze * 0.1;
+        h_w = headR * 4.5; h_h = headR * 4.5; h_dy = -230;
+      }
+
+      // ── Отрисовка Тела ──
+      ctx.drawImage(imgSet.body, -b_w / 2, bodyTop + b_dy, b_w, b_h);
+
+      // ── Отрисовка Левой руки ──
+      ctx.save();
+      ctx.translate(al_cx, al_cy);
+      ctx.rotate(al_rot - al_lift);
+      ctx.drawImage(imgSet.armL, al_ox, al_oy, al_w, al_h);
+      ctx.restore();
+
+      // ── Отрисовка Правой руки ──
+      ctx.save();
+      ctx.translate(ar_cx, ar_cy);
+      ctx.rotate(ar_rot + ar_lift);
+      ctx.drawImage(imgSet.armR, ar_ox, ar_oy, ar_w, ar_h);
+      ctx.restore();
+
+      // ── Отрисовка Головы ──
+      ctx.drawImage(imgSet.head, -h_w / 2, headY - h_h / 2 + h_dy, h_w, h_h);
+
+      ctx.restore(); // undo squish
+
+      requestAnimationFrame(drawFrame);
+    }
+    requestAnimationFrame(drawFrame);
+
+    /* ═══════════════════════════════════════════════════════
+       EVENT BINDINGS
+       ═══════════════════════════════════════════════════════ */
+    document.getElementById('mute-btn').addEventListener('click', (e) => {
+      state.soundEnabled = !state.soundEnabled;
+      e.target.textContent = state.soundEnabled ? '🔊' : '🔇';
+    });
+
+    document.getElementById('achievements-btn').addEventListener('click', () => {
+      renderAchievements();
+      document.getElementById('achievements-overlay').style.display = 'flex';
+    });
+    document.getElementById('close-achievements').addEventListener('click', () => {
+      document.getElementById('achievements-overlay').style.display = 'none';
+    });
+
+    document.getElementById('stats-btn').addEventListener('click', () => {
+      renderStats();
+      document.getElementById('stats-overlay').style.display = 'flex';
+    });
+    document.getElementById('close-stats').addEventListener('click', () => {
+      document.getElementById('stats-overlay').style.display = 'none';
+    });
+
+    $liftBtn.addEventListener('click', doRep);
+    $buyClick.addEventListener('click', () => buyUpgrade('click'));
+    $buyTitanium.addEventListener('click', () => buyUpgrade('titanium'));
+    $buyAlien.addEventListener('click', () => buyUpgrade('alien'));
+    $buyNeutron.addEventListener('click', () => buyUpgrade('neutron'));
+    $buyAuto.addEventListener('click', () => buyUpgrade('auto'));
+    $buyShake.addEventListener('click', () => buyUpgrade('shake'));
+    $buyBro.addEventListener('click', () => buyUpgrade('bro'));
+    $buyTrainer.addEventListener('click', () => buyUpgrade('trainer'));
+    $buySponsor.addEventListener('click', () => buyUpgrade('sponsor'));
+    $buyChain.addEventListener('click', () => buyUpgrade('chain'));
+    $buyCreatine.addEventListener('click', () => buyUpgrade('creatine'));
+    $buyPelican.addEventListener('click', () => buyUpgrade('pelican'));
+    $buySteroids.addEventListener('click', () => buyUpgrade('steroids'));
+    document.getElementById('btn-prestige').addEventListener('click', doPrestige);
+
+    // Keyboard shortcut: space to lift
+    document.addEventListener('keydown', (e) => {
+      if (e.code === 'Space' && e.target === document.body) {
+        e.preventDefault();
+        doRep();
+      }
+
+      // ДЛЯ ТЕСТИРОВАНИЯ: Клавиши 1-5 переключают уровни
+      if (['1', '2', '3', '4', '5'].includes(e.key)) {
+        forceTier(parseInt(e.key));
+      }
+    });
+
+    // ДЛЯ ТЕСТИРОВАНИЯ: Клик по баннеру переключает уровень
+    document.getElementById('tier-banner').addEventListener('click', () => {
+      let nextTier = state.capyMassLevel + 1;
+      if (nextTier > 5) nextTier = 1;
+      forceTier(nextTier);
+    });
+
+    function forceTier(level) {
+      const tierDef = TIERS.find(t => t.level === level);
+      if (tierDef) {
+        state.totalGPEarned = tierDef.gpNeeded || 1;
+        state.gpCount = tierDef.gpNeeded || 1;
+        state.capyMassLevel = 0; // Сброс для принудительного срабатывания checkTier
+        checkTier();
+        updateUI();
+      }
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       RANDOM EVENTS
+       ═══════════════════════════════════════════════════════ */
+    window.spawnGoldenDumbbell = spawnGoldenDumbbell;
+    function spawnGoldenDumbbell() {
+      if (document.querySelector('.golden-dumbbell')) return;
+      const el = document.createElement('div');
+      el.className = 'golden-dumbbell';
+      el.innerHTML = '<img src="gold_dumbbells.png" style="width: 100%; height: 100%; object-fit: contain; pointer-events: none;">';
+
+      const rect = $stage.getBoundingClientRect();
+      const px = Math.random() * (rect.width - 60);
+      const py = Math.random() * (rect.height - 100) + 20;
+      el.style.left = px + 'px';
+      el.style.top = py + 'px';
+
+      el.addEventListener('click', () => {
+        const reward = Math.max(500 * getPrestigeMultiplier(), Math.floor(state.gpCount * 0.15));
+        state.gpCount += reward;
+        state.totalGPEarned = (state.totalGPEarned || 0) + reward;
+        state.goldenDumbbellsClicked++;
+        if (typeof progressQuest === 'function') progressQuest('dumbbell');
+        spawnFloatGP(reward, true);
+        triggerShake();
+        spawnConfetti();
+        beep(600, 0.1); setTimeout(() => beep(800, 0.2), 100);
+        updateUI();
+        checkAchievements();
+        el.remove();
+      });
+
+      $stage.appendChild(el);
+      setTimeout(() => { if (el.parentNode) el.remove(); }, 8000);
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       GAME LOOP — Auto GP
+       ═══════════════════════════════════════════════════════ */
+    setInterval(() => {
+      if (state.autoPower > 0) {
+        let autoMult = getEffectiveMultiplier() * getPrestigeMultiplier();
+        // Event: broken equipment halves auto
+        if (state.activeEvent === 'broken' && Date.now() < state.activeEventUntil) {
+          autoMult *= 0.5;
+        }
+        // Event: protein rain doubles auto
+        if (state.activeEvent === 'protein_rain' && Date.now() < state.activeEventUntil) {
+          autoMult *= 2;
+        }
+        const amt = state.autoPower * autoMult;
+        state.gpCount += amt;
+        state.totalGPEarned = (state.totalGPEarned || 0) + amt;
+
+        if (currentTournament) {
+          currentTournament.hpLeft -= amt;
+          updateBossUI();
+        }
+
+        const numParticles = 5;
+        const partAmt = amt / numParticles;
+        for (let i = 0; i < numParticles; i++) {
+          setTimeout(() => spawnFloatGP(partAmt, false), i * (1000 / numParticles));
+        }
+
+        checkTier();
+      }
+      // Clear expired events
+      if (state.activeEvent && Date.now() >= state.activeEventUntil) {
+        state.activeEvent = null;
+        state.activeEventUntil = 0;
+        document.getElementById('event-banner').classList.remove('visible');
+      }
+      // Random events
+      if (Math.random() < getGoldenDumbbellRate()) spawnGoldenDumbbell();
+      if (Math.random() < 0.03 && !state.activeEvent) triggerRandomEvent();
+      updateUI();
+      checkAchievements();
+      updateTutorial();
+    }, 1000);
+
+    /* ═══════════════════════════════════════════════════════
+       PRESTIGE TREE
+       ═══════════════════════════════════════════════════════ */
+    const PRESTIGE_UPGRADES = [
+      // 🔴 Active Branch
+      { id: 'faster_fingers', name: 'Быстрые Пальцы', desc: 'Сила клика x2.', icon: '🖱️', cost: 2, branch: 'active', req: null },
+      { id: 'crit_master', name: 'Мастер Крита', desc: 'Удвоенный шанс критического клика Пеликаном.', icon: '🔥', cost: 3, branch: 'active', req: 'faster_fingers' },
+      { id: 'combo_king', name: 'Король Комбо', desc: 'Максимальный множитель комбо x4 (вместо x2).', icon: '⚡', cost: 5, branch: 'active', req: 'crit_master' },
+      { id: 'steroid_addict', name: 'Стероидный Маньяк', desc: 'Эффект Стероидов x20 (вместо x10).', icon: '💉', cost: 10, branch: 'active', req: 'combo_king' },
+      // 🔵 Passive (AFK) Branch
+      { id: 'auto_master', name: 'Мастер Автоматизации', desc: 'Авто-доход x2.', icon: '⚙️', cost: 2, branch: 'passive', req: null },
+      { id: 'offline_god', name: 'Оффлайн Бог', desc: 'Оффлайн доход 100% (вместо 20%).', icon: '🌙', cost: 3, branch: 'passive', req: 'auto_master' },
+      { id: 'golden_dumbbell_freq', name: 'Гантельный Магнит', desc: 'Золотая гантеля появляется в 2 раза чаще.', icon: '🧲', cost: 5, branch: 'passive', req: 'offline_god' },
+      { id: 'quest_master', name: 'Мастер Квестов', desc: 'Награда за квесты (включая Гемы) удваивается.', icon: '📜', cost: 10, branch: 'passive', req: 'golden_dumbbell_freq' },
+      // 🟢 Utility (Eco) Branch
+      { id: 'golden_start', name: 'Золотой Старт', desc: 'Начинаешь с 1,000 GP после престижа.', icon: '🌅', cost: 1, branch: 'utility', req: null },
+      { id: 'cheap_upgrades', name: 'Скидочная Карта', desc: 'Тренажеры на 15% дешевле.', icon: '💸', cost: 3, branch: 'utility', req: 'golden_start' },
+      { id: 'golden_muscles', name: 'Золотые Мышцы', desc: 'Глобальный множитель x1.5.', icon: '💛', cost: 5, branch: 'utility', req: 'cheap_upgrades' },
+      { id: 'lootbox_luck', name: 'Удачливый Грабитель', desc: 'Шанс на Скин в Лутбоксе повышен с 20% до 30%!', icon: '🎰', cost: 10, branch: 'utility', req: 'golden_muscles' },
+    ];
+
+    function renderPrestigeTree() {
+      const $list = document.getElementById('prestige-tree-list');
+      const ups = state.prestigeUpgrades || {};
+      document.getElementById('prestige-coins-display').textContent = `Золотые Монеты: ${state.prestigeCoins}`;
+
+      const branches = [
+        { id: 'active', title: '🔴 Активный Кликер' },
+        { id: 'passive', title: '🔵 Пассивный (АФК)' },
+        { id: 'utility', title: '🟢 Экономист' },
+      ];
+
+      $list.innerHTML = branches.map(b => {
+        const branchUpgrades = PRESTIGE_UPGRADES.filter(u => u.branch === b.id);
+        return `
+      <div class="ptree-column">
+        <h3>${b.title}</h3>
+        ${branchUpgrades.map(up => {
+          const owned = !!ups[up.id];
+          const reqMet = !up.req || !!ups[up.req];
+          const canBuy = !owned && reqMet && state.prestigeCoins >= up.cost;
+          const locked = !owned && !reqMet;
+          return `
+            <div class="ptree-card ${owned ? 'bought' : ''} ${locked ? 'locked' : ''}">
+              <div class="ptree-icon">${locked ? '🔒' : up.icon}</div>
+              <div class="ptree-info">
+                <h4>${up.name}</h4>
+                <p>${locked ? `Нужно: ${PRESTIGE_UPGRADES.find(u => u.id === up.req).name}` : up.desc}</p>
+              </div>
+              <button class="ptree-buy-btn ${owned ? 'owned' : ''}" 
+                      data-id="${up.id}" data-cost="${up.cost}"
+                      ${owned ? 'disabled' : (canBuy ? '' : 'disabled')}>
+                ${owned ? '✓ КУПЛЕНО' : `${up.cost} 🪙`}
+              </button>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+      }).join('');
+
+      // Attach buy handlers
+      $list.querySelectorAll('.ptree-buy-btn:not(.owned)').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const id = btn.dataset.id;
+          const cost = parseInt(btn.dataset.cost);
+          if (state.prestigeCoins >= cost) {
+            state.prestigeCoins -= cost;
+            if (!state.prestigeUpgrades) state.prestigeUpgrades = {};
+            state.prestigeUpgrades[id] = true;
+            purchaseBeep();
+            spawnConfetti();
+            showToast(`🌳 Открыто: ${PRESTIGE_UPGRADES.find(u => u.id === id).name}!`);
+            renderPrestigeTree();
+            updateUI();
+            saveGame();
+          }
+        });
+      });
+    }
+
+    document.getElementById('prestige-tree-btn').addEventListener('click', () => {
+      renderPrestigeTree();
+      document.getElementById('prestige-tree-overlay').style.display = 'flex';
+    });
+    document.getElementById('close-prestige-tree').addEventListener('click', () => {
+      document.getElementById('prestige-tree-overlay').style.display = 'none';
+    });
+
+    // Apply "Golden Start" on prestige
+    const _origDoPrestige = doPrestige;
+    // (golden_start is applied in doPrestige reset — need to patch)
+
+    // Apply "Lucky Capy" to golden dumbbell spawn rate
+    const _origGoldenRate = 0.04;
+    function getGoldenDumbbellRate() {
+      return (state.prestigeUpgrades && state.prestigeUpgrades['lucky_capy']) ? 0.08 : 0.04;
+    }
+
+    // Apply "Extended Fever" to steroids duration
+    function getSteroidsDuration() {
+      return (state.prestigeUpgrades && state.prestigeUpgrades['extended_fever']) ? 20000 : 10000;
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       TUTORIAL SYSTEM
+       ═══════════════════════════════════════════════════════ */
+    const $tutHint = document.getElementById('tutorial-hint');
+
+    function updateTutorial() {
+      if (!state.tutorialStep && state.tutorialStep !== 0) return;
+      if (state.totalClicks > 100) { // Tutorial done
+        state.tutorialStep = 99;
+        $tutHint.classList.remove('visible');
+        $liftBtn.classList.remove('tutorial-pulse');
+        return;
+      }
+
+      switch (state.tutorialStep) {
+        case 0: // First time — highlight click button
+          if (state.totalClicks === 0) {
+            $liftBtn.classList.add('tutorial-pulse');
+            $tutHint.textContent = '👆 Кликай по кнопке, чтобы качаться!';
+            $tutHint.classList.add('visible');
+          } else {
+            state.tutorialStep = 1;
+            $liftBtn.classList.remove('tutorial-pulse');
+            $tutHint.classList.remove('visible');
+          }
+          break;
+        case 1: // Earned some GP — point to shop
+          if (state.gpCount >= 10) {
+            $tutHint.textContent = '🛒 Тебе хватает на апгрейд! Загляни в магазин →';
+            $tutHint.classList.add('visible');
+            state.tutorialStep = 2;
+          }
+          break;
+        case 2: // Bought first upgrade
+          if (state.clickLevel >= 1 || state.autoLevel >= 1) {
+            $tutHint.textContent = '🎉 Отлично! Продолжай покупать, чтобы раскачать капибару!';
+            $tutHint.classList.add('visible');
+            setTimeout(() => {
+              $tutHint.classList.remove('visible');
+              state.tutorialStep = 99;
+            }, 4000);
+          }
+          break;
+      }
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       QUESTS SYSTEM
+       ═══════════════════════════════════════════════════════ */
+    const QUEST_TEMPLATES = [
+      { type: 'click', desc: 'Кликни по кнопке {n} раз', targets: [50, 100, 200], reward: [1, 2, 4] },
+      { type: 'buy', desc: 'Купи {n} улучшений', targets: [5, 10, 15], reward: [1, 2, 3] },
+      { type: 'dumbbell', desc: 'Поймай {n} Золотых Гантелей', targets: [1, 3, 5], reward: [2, 5, 8] }
+    ];
+
+    function generateQuest() {
+      const t = QUEST_TEMPLATES[Math.floor(Math.random() * QUEST_TEMPLATES.length)];
+      const idx = Math.floor(Math.random() * t.targets.length);
+      let r = t.reward[idx];
+      if (state.prestigeUpgrades && state.prestigeUpgrades['quest_master']) r *= 2;
+      return {
+        id: 'q_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+        type: t.type,
+        desc: t.desc.replace('{n}', t.targets[idx]),
+        target: t.targets[idx],
+        progress: 0,
+        reward: r,
+        completed: false
+      };
+    }
+
+    function ensureQuests() {
+      if (!state.activeQuests) state.activeQuests = [];
+      while (state.activeQuests.length < 3) {
+        state.activeQuests.push(generateQuest());
+      }
+    }
+
+    function progressQuest(type, amount = 1) {
+      if (!state.activeQuests) return;
+      let updated = false;
+      state.activeQuests.forEach(q => {
+        if (!q.completed && q.type === type) {
+          q.progress = Math.min(q.target, q.progress + amount);
+          if (q.progress >= q.target) {
+            q.completed = true;
+            showToast('✅ Задание Выполнено!');
+            beep(500, 0.1); setTimeout(() => beep(700, 0.2), 150);
+          }
+          updated = true;
+        }
+      });
+      if (updated && document.getElementById('quests-overlay').style.display === 'flex') {
+        renderQuests();
+      }
+    }
+
+    function renderQuests() {
+      ensureQuests();
+      const $list = document.getElementById('quests-list');
+      $list.innerHTML = state.activeQuests.map((q, i) => `
+    <div class="quest-card">
+      <div class="quest-header">
+        <span>${q.desc}</span>
+        <span class="quest-reward">+${q.reward} 💎</span>
+      </div>
+      <div style="font-size: 0.8rem; color: var(--text-dim);">Прогресс: ${q.progress} / ${q.target}</div>
+      <div class="quest-progress-wrap">
+        <div class="quest-progress-fill" style="width: ${(q.progress / q.target) * 100}%"></div>
+      </div>
+      <button class="quest-claim-btn ${q.completed ? 'ready' : ''}" data-idx="${i}">ЗАБРАТЬ НАГРАДУ</button>
+    </div>
+  `).join('');
+
+      $list.querySelectorAll('.quest-claim-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const idx = parseInt(e.target.dataset.idx);
+          const q = state.activeQuests[idx];
+          if (q.completed) {
+            state.gems += q.reward;
+            state.questsCompleted = (state.questsCompleted || 0) + 1;
+            state.activeQuests.splice(idx, 1);
+            ensureQuests();
+            renderQuests();
+            updateUI();
+            saveGame();
+            spawnConfetti();
+            purchaseBeep();
+          }
+        });
+      });
+    }
+
+    document.getElementById('quests-btn').addEventListener('click', () => {
+      renderQuests();
+      document.getElementById('quests-overlay').style.display = 'flex';
+    });
+    document.getElementById('close-quests').addEventListener('click', () => {
+      document.getElementById('quests-overlay').style.display = 'none';
+    });
+
+    /* ═══════════════════════════════════════════════════════
+       WARDROBE / SKINS
+       ═══════════════════════════════════════════════════════ */
+    const SKINS = [
+      { id: 'cool', name: 'Крутая Капи', icon: '🕶️', cost: 10, type: 'accessory' },
+      { id: 'king', name: 'Король Капи', icon: '👑', cost: 25, type: 'accessory' },
+      { id: 'alien', name: 'Алиен Капи', icon: '👽', cost: 50, type: 'color', color: '#88ff88' },
+      { id: 'demon', name: 'Демон Капи', icon: '😈', cost: 100, type: 'color', color: '#ff5555' },
+      { id: 'cyborg', name: 'Киборг-Капи', icon: '🤖', cost: 999999, type: 'color', color: '#aabccc' },
+    ];
+
+    function renderWardrobe() {
+      const $list = document.getElementById('wardrobe-list');
+      $list.innerHTML = SKINS.map(s => {
+        const owned = (state.skins || []).includes(s.id);
+        const active = state.activeSkin === s.id;
+        return `
+      <div class="skin-card ${owned ? 'owned' : ''} ${active ? 'active' : ''}" data-id="${s.id}">
+        <div class="skin-icon">${s.icon}</div>
+        <div class="skin-name">${s.name}</div>
+        <div class="skin-cost">${owned ? (active ? 'НАДЕТО' : 'КУПЛЕНО') : (s.cost + ' 💎')}</div>
+      </div>
+    `;
+      }).join('');
+
+      $list.querySelectorAll('.skin-card').forEach(card => {
+        card.addEventListener('click', () => {
+          const id = card.dataset.id;
+          const s = SKINS.find(x => x.id === id);
+          const owned = (state.skins || []).includes(id);
+
+          if (owned) {
+            state.activeSkin = state.activeSkin === id ? null : id; // toggle
+            saveGame();
+            renderWardrobe();
+          } else if (state.gems >= s.cost) {
+            state.gems -= s.cost;
+            if (!state.skins) state.skins = [];
+            state.skins.push(id);
+            state.activeSkin = id;
+            saveGame();
+            renderWardrobe();
+            updateUI();
+            purchaseBeep();
+            spawnConfetti();
+          }
+        });
+      });
+    }
+
+    document.getElementById('wardrobe-btn').addEventListener('click', () => {
+      renderWardrobe();
+      document.getElementById('wardrobe-overlay').style.display = 'flex';
+    });
+    document.getElementById('close-wardrobe').addEventListener('click', () => {
+      document.getElementById('wardrobe-overlay').style.display = 'none';
+    });
+
+    /* ═══════════════════════════════════════════════════════
+       LOCATIONS SYSTEM
+       ═══════════════════════════════════════════════════════ */
+    function renderLocations() {
+      const $list = document.getElementById('locations-list');
+      $list.innerHTML = LOCATIONS.map(loc => {
+        const unlocked = state.capyMassLevel >= loc.reqTier;
+        const active = state.currentLocation === loc.id;
+        return `
+      <div class="location-card ${unlocked ? 'unlocked' : 'locked'} ${active ? 'active' : ''}" data-id="${loc.id}">
+        <div class="location-info">
+          <h4>${loc.name}</h4>
+          <p>${loc.desc}</p>
+        </div>
+        <div class="location-status">
+          ${active ? 'ТЕКУЩАЯ' : (unlocked ? 'ВЫБРАТЬ' : `НУЖЕН УРОВЕНЬ ${loc.reqTier}`)}
+        </div>
+      </div>
+    `;
+      }).join('');
+
+      $list.querySelectorAll('.location-card.unlocked').forEach(card => {
+        card.addEventListener('click', () => {
+          const id = card.dataset.id;
+          if (state.currentLocation !== id) {
+            state.currentLocation = id;
+            saveGame();
+            renderLocations();
+            updateUI();
+            triggerShake();
+            spawnConfetti();
+            beep(400, 0.1); setTimeout(() => beep(600, 0.2), 150);
+            showInterstitialAd();
+          }
+        });
+      });
+    }
+
+    document.getElementById('locations-btn').addEventListener('click', () => {
+      renderLocations();
+      document.getElementById('locations-overlay').style.display = 'flex';
+    });
+    document.getElementById('close-locations').addEventListener('click', () => {
+      document.getElementById('locations-overlay').style.display = 'none';
+    });
+
+    /* ═══════════════════════════════════════════════════════
+       TOURNAMENT LOGIC
+       ═══════════════════════════════════════════════════════ */
+    let tournamentInterval = null;
+
+    function startTournament() {
+      if (state.tournamentCooldownUntil > Date.now()) {
+        showToast('❌ Турнир пока недоступен!');
+        return;
+      }
+      if (currentTournament) return;
+
+      const boss = BOSSES.find(b => b.level === state.tournamentLevel) || BOSSES[BOSSES.length - 1];
+
+      // Scale HP for boss level > 5
+      const extraLevels = Math.max(0, state.tournamentLevel - 5);
+      const hpMultiplier = Math.pow(10, extraLevels);
+      const maxHp = boss.hp * hpMultiplier;
+
+      currentTournament = {
+        bossId: boss.level,
+        name: boss.name,
+        maxHp: maxHp,
+        hpLeft: maxHp,
+        reward: boss.reward + (extraLevels * 100),
+        endTime: Date.now() + 30000 // 30 seconds
+      };
+
+      document.getElementById('boss-name').textContent = `💥 БОСС: ${currentTournament.name}`;
+      document.getElementById('boss-bar-container').style.display = 'block';
+
+      updateBossUI();
+
+      tournamentInterval = setInterval(() => {
+        if (!currentTournament) {
+          clearInterval(tournamentInterval);
+          return;
+        }
+        updateBossUI();
+
+        if (currentTournament.hpLeft <= 0) {
+          endTournament(true);
+        } else if (Date.now() >= currentTournament.endTime) {
+          endTournament(false);
+        }
+      }, 100);
+    }
+
+    function updateBossUI() {
+      if (!currentTournament) return;
+      const now = Date.now();
+      let timeLeft = Math.max(0, (currentTournament.endTime - now) / 1000);
+      document.getElementById('boss-timer').textContent = `00:${timeLeft < 10 ? '0' : ''}${timeLeft.toFixed(1)}`;
+
+      const pct = Math.max(0, Math.min(100, (currentTournament.hpLeft / currentTournament.maxHp) * 100));
+      document.getElementById('boss-hp-fill').style.width = pct + '%';
+      document.getElementById('boss-hp-text').textContent = `${formatNum(Math.max(0, currentTournament.hpLeft))} / ${formatNum(currentTournament.maxHp)} HP`;
+    }
+
+    function endTournament(success) {
+      if (!currentTournament) return;
+
+      document.getElementById('boss-bar-container').style.display = 'none';
+      clearInterval(tournamentInterval);
+
+      if (success) {
+        showToast(`🏆 БОСС ПОВЕРЖЕН! Награда: ${currentTournament.reward} 💎`);
+        state.gems = (state.gems || 0) + currentTournament.reward;
+        state.tournamentLevel++;
+        spawnConfetti();
+        spawnConfetti();
+        spawnConfetti();
+        beep(800, 0.2); setTimeout(() => beep(1000, 0.3), 200);
+      } else {
+        showToast(`💀 ВРЕМЯ ВЫШЛО! Босс оказался сильнее.`);
+        state.tournamentCooldownUntil = Date.now() + 5 * 60000; // 5 mins cooldown
+        beep(200, 0.3); setTimeout(() => beep(150, 0.4), 300);
+      }
+
+      currentTournament = null;
+      saveGame();
+      updateUI();
+    }
+
+    document.getElementById('tournament-btn').addEventListener('click', startTournament);
+
+    /* ═══════════════════════════════════════════════════════
+       LOOTBOX LOGIC
+       ═══════════════════════════════════════════════════════ */
+    document.getElementById('lootbox-btn').addEventListener('click', () => {
+      document.getElementById('lootbox-overlay').style.display = 'flex';
+      document.getElementById('lootbox-result').textContent = 'Готов испытать удачу?';
+      document.getElementById('open-lootbox-btn').disabled = false;
+      document.getElementById('open-lootbox-btn').textContent = 'ОТКРЫТЬ ЗА 25 💎';
+      document.getElementById('lootbox-bag').classList.remove('bag-shaking');
+      document.getElementById('lootbox-bag').textContent = '🎒';
+    });
+
+    document.getElementById('close-lootbox').addEventListener('click', () => {
+      document.getElementById('lootbox-overlay').style.display = 'none';
+    });
+
+    document.getElementById('open-lootbox-btn').addEventListener('click', () => {
+      if (state.gems < 25) {
+        showToast('❌ Не хватает Алмазов!');
+        beep(200, 0.3);
+        return;
+      }
+
+      state.gems -= 25;
+      saveGame();
+      updateUI();
+
+      const $btn = document.getElementById('open-lootbox-btn');
+      const $bag = document.getElementById('lootbox-bag');
+      const $res = document.getElementById('lootbox-result');
+
+      $btn.disabled = true;
+      $btn.textContent = 'ОТКРЫВАЕМ...';
+      $res.textContent = '...';
+      $bag.classList.add('bag-shaking');
+      beep(150, 0.1); setTimeout(() => beep(200, 0.1), 200); setTimeout(() => beep(250, 0.1), 400);
+
+      setTimeout(() => {
+        $bag.classList.remove('bag-shaking');
+        const r = Math.random();
+
+        let chanceSkin = (state.prestigeUpgrades && state.prestigeUpgrades['lootbox_luck']) ? 0.30 : 0.20;
+        let thresholdGems = (chanceSkin === 0.30) ? 0.20 : 0.30;
+        let thresholdBuff = thresholdGems + 0.50;
+
+        if (r < thresholdGems) {
+          // Gems (10 to 50)
+          const g = Math.floor(Math.random() * 41) + 10;
+          state.gems += g;
+          $bag.textContent = '💎';
+          $res.textContent = `Кэшбек! Ты нашел ${g} Алмазов!`;
+          beep(600, 0.1); setTimeout(() => beep(800, 0.2), 100);
+        } else if (r < thresholdBuff) {
+          // Buff (x5 for 5 mins)
+          state.lootboxBuffMultiplier = 5;
+          state.lootboxBuffUntil = Date.now() + 5 * 60000;
+          $bag.textContent = '⚡';
+          $res.textContent = 'СУПЕР БАФФ! Множитель x5 на 5 минут!';
+          beep(500, 0.3);
+        } else {
+          // Skin
+          const randomSkin = SKINS[Math.floor(Math.random() * SKINS.length)];
+          if (!state.skins) state.skins = [];
+          if (state.skins.includes(randomSkin.id)) {
+            state.gems += 100;
+            $bag.textContent = '💎';
+            $res.textContent = `Повторка скина "${randomSkin.name}"! Компенсация: 100 Алмазов!`;
+            beep(700, 0.2);
+          } else {
+            state.skins.push(randomSkin.id);
+            $bag.textContent = randomSkin.icon;
+            $res.textContent = `ДЖЕКПОТ! Выпал скин: ${randomSkin.name}!`;
+            spawnConfetti(); spawnConfetti();
+            beep(800, 0.2); setTimeout(() => beep(1000, 0.3), 200);
+          }
+        }
+
+        saveGame();
+        updateUI();
+        $btn.disabled = false;
+        $btn.textContent = 'ОТКРЫТЬ ЕЩЕ (25 💎)';
+      }, 2000);
+    });
+
+    /* ═══════════════════════════════════════════════════════
+       DAILY LOGIN LOGIC
+       ═══════════════════════════════════════════════════════ */
+    const DAILY_REWARDS = [
+      { day: 1, icon: '🪙', title: '1,000 GP', action: () => { state.gpCount += 1000; } },
+      { day: 2, icon: '💎', title: '5 Алмазов', action: () => { state.gems += 5; } },
+      { day: 3, icon: '🪙', title: '10,000 GP', action: () => { state.gpCount += 10000; } },
+      { day: 4, icon: '💎', title: '15 Алмазов', action: () => { state.gems += 15; } },
+      { day: 5, icon: '🎒', title: 'Сумка', action: () => { state.gems += 25; document.getElementById('lootbox-btn').click(); } },
+      { day: 6, icon: '⚡', title: 'Бафф x5', action: () => { state.lootboxBuffMultiplier = 5; state.lootboxBuffUntil = Date.now() + 10 * 60000; } },
+      {
+        day: 7, icon: '🤖', title: 'Скин: Киборг', action: () => {
+          if (!state.skins) state.skins = [];
+          if (state.skins.includes('cyborg')) { state.gems += 100; showToast('Скин "Киборг" уже есть. Компенсация: 100 💎!'); }
+          else { state.skins.push('cyborg'); showToast('🏆 ДЖЕКПОТ! Получен скин: Киборг-Капи!'); }
+        }
+      },
+    ];
+
+    function renderDailyRewards() {
+      const $grid = document.getElementById('daily-grid');
+      $grid.innerHTML = '';
+      const currentStreak = state.loginStreak % 7;
+
+      DAILY_REWARDS.forEach((rew, idx) => {
+        const isClaimed = idx < currentStreak || (idx === currentStreak && state.dailyRewardClaimed);
+        const isCurrent = idx === currentStreak && !state.dailyRewardClaimed;
+
+        let cls = 'daily-card';
+        if (idx === 6) cls += ' day7';
+        if (isClaimed) cls += ' claimed';
+        if (isCurrent) cls += ' current';
+
+        $grid.innerHTML += `
+      <div class="${cls}">
+        <div class="daily-day">ДЕНЬ ${rew.day}</div>
+        <div class="daily-icon">${rew.icon}</div>
+        <div class="daily-reward-text">${rew.title}</div>
+      </div>
+    `;
+      });
+
+      const $btn = document.getElementById('daily-claim-btn');
+      if (state.dailyRewardClaimed) {
+        $btn.disabled = true;
+        $btn.textContent = 'УЖЕ ЗАБРАЛ (ЖДИ ЗАВТРА)';
+      } else {
+        $btn.disabled = false;
+        $btn.textContent = 'ЗАБРАТЬ';
+      }
+    }
+
+    document.getElementById('daily-btn').addEventListener('click', () => {
+      renderDailyRewards();
+      document.getElementById('daily-overlay').style.display = 'flex';
+    });
+    document.getElementById('close-daily').addEventListener('click', () => {
+      document.getElementById('daily-overlay').style.display = 'none';
+    });
+
+    document.getElementById('daily-claim-btn').addEventListener('click', () => {
+      if (state.dailyRewardClaimed) return;
+
+      const currentStreak = state.loginStreak % 7;
+      const reward = DAILY_REWARDS[currentStreak];
+
+      reward.action();
+      state.dailyRewardClaimed = true;
+      state.loginStreak++;
+
+      saveGame();
+      updateUI();
+      renderDailyRewards();
+
+      spawnConfetti();
+      beep(500, 0.1); setTimeout(() => beep(700, 0.2), 150); setTimeout(() => beep(900, 0.3), 300);
+    });
+
+    // Auto-open daily if not claimed
+    if (!state.dailyRewardClaimed) {
+      setTimeout(() => {
+        document.getElementById('daily-btn').click();
+      }, 1500);
+    }
+
+    document.getElementById('rewarded-ad-btn').addEventListener('click', () => {
+      if (ysdk && ysdk.adv) {
+        ysdk.adv.showRewardedVideo({
+          callbacks: {
+            onOpen: () => { },
+            onRewarded: () => {
+              state.gems += 15;
+              saveGame();
+              updateUI();
+              showToast('✅ Награда получена: +15 Алмазов!');
+              spawnConfetti();
+              beep(600, 0.1); setTimeout(() => beep(800, 0.2), 100);
+            },
+            onClose: () => { },
+            onError: (e) => { console.error('Error while showing rewarded ad:', e); showToast('❌ Ошибка рекламы'); }
+          }
+        });
+      } else {
+        showToast('❌ Реклама недоступна (Запущено не в Яндексе)');
+      }
+    });
+
+    /* ─── Initial render ──────────────────────────────────── */
+    updateUI();
+    updateTutorial();

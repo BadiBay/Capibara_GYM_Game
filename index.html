@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Capybara Gym</title>
+
+  <!-- Yandex Games SDK -->
+  <script>
+    if (window.location.protocol !== 'file:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      document.write('<script src="https://yandex.ru/games/sdk/v2"><\/script>');
+    } else {
+      console.log('Running locally without Yandex SDK');
+    }
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="js/i18n.js?v=44"></script>
+</head>
+
+<body>
+  <div id="app">
+    <header>
+      <h1 data-i18n="title_main">КАПИБАРА КАЧАЛКА</h1>
+      <div style="display: flex; align-items: center; gap: 15px;">
+
+        <button id="gem-shop-btn" class="menu-btn" data-i18n-title="title_gem_shop"
+          style="background:none; border:none; cursor:pointer; position: relative; z-index: 1001; width: 40px; height: 40px;"
+          title="Магазин Бустов"><img src="images/menu/boost_shop.webp" alt="Boost Shop"></button>
+        <button id="help-btn" class="menu-btn" data-i18n-title="title_help"
+          style="background:none; border:none; cursor:pointer; position: relative; z-index: 1001; width: 40px; height: 40px;"
+          title="Справка"><img src="images/menu/menu-help.webp" alt="Help"></button>
+        <button id="settings-btn" class="menu-btn" data-i18n-title="title_settings"
+          style="background:none; border:none; cursor:pointer; position: relative; z-index: 1001; width: 40px; height: 40px;"
+          title="Настройки"><img src="images/menu/menu-settings.webp" alt="Settings"></button>
+      </div>
+    </header>
+
+    <section id="stage"
+      style="touch-action: none; user-select: none; cursor: pointer; position: relative; isolation: isolate;">
+      <video id="stage-video" autoplay loop muted playsinline disablePictureInPicture disableRemotePlayback controlslist="nodownload nofullscreen noremoteplayback"
+        style="display:none; position:absolute; top:0; left:0; width:100%; height:100%; object-fit:cover; z-index:-1; pointer-events:none;"></video>
+      <div id="tier-banner" style="z-index: 1;">УРОВЕНЬ 1 - Обычный</div>
+      <div id="tier-progress-wrap">
+        <div id="tier-progress-fill"></div>
+        <div id="tier-progress-text">0 / 0 GP</div>
+      </div>
+      <div id="bottom-banners-container" style="position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column-reverse; align-items: center; z-index: 12; width: 100%; pointer-events: none;">
+        <div id="event-banner" class="game-banner"></div>
+        <div id="lootbox-banner" class="game-banner"></div>
+      </div>
+
+      <div id="huge-score">
+        <div class="score-gp"><span id="gp-count">0</span> <img src="images/GP.webp" alt="GP"
+            style="height: 1em; vertical-align: middle; transform: translateY(-0.15em); margin-left: 5px;"></div>
+        <div class="score-gems"><span id="gem-count">0</span> <span data-i18n="gems_label">Алмазов</span></div>
+      </div>
+
+      <div class="stage-side-menu left">
+        <button id="bp-btn" class="stage-btn menu-btn" data-i18n-title="title_bp" title="Боевой Пропуск"
+          style="background: linear-gradient(135deg, #ffd700, #ff8c00); border: 2px solid white; box-shadow: 0 0 10px #ff8c00;">
+          <img src="images/menu/menu-battlepass.webp" alt="BP">
+        </button>
+        <button id="quests-btn" class="stage-btn menu-btn" data-i18n-title="title_quests" title="Задания"><img
+            src="images/menu/menu-quests.webp" alt="Quests"></button>
+        <button id="achievements-btn" class="stage-btn menu-btn" data-i18n-title="title_achievements"
+          title="Достижения"><img src="images/menu/menu-achievements.webp" alt="Achievements"></button>
+        <button id="stats-btn" class="stage-btn menu-btn" data-i18n-title="title_stats" title="Статистика"><img
+            src="images/menu/menu-stats.webp" alt="Stats"></button>
+        <button id="prestige-tree-btn" class="stage-btn menu-btn" data-i18n-title="title_prestige_tree"
+          style="display:none;" title="Дерево Престижа"><img src="images/menu/menu-prestige.webp"
+            alt="Prestige"></button>
+        <button id="locations-btn" class="stage-btn menu-btn" data-i18n-title="title_locations" title="Локации"><img
+            src="images/menu/menu-map.webp" alt="Locations"></button>
+      </div>
+      <div class="stage-side-menu right">
+        <button id="x2-boost-btn" class="stage-btn menu-btn"
+          style="color: var(--neon-blue); border-color: var(--neon-blue);" title="x2 Буст на 15 мин">
+          <img src="images/menu/menu-boost.webp" alt="Boost"><span class="btn-text"></span>
+        </button>
+        <button id="auto-clicker-btn" class="stage-btn menu-btn"
+          style="color: var(--neon-green); border-color: var(--neon-green);" title="Автоклик на 1 мин">
+          <img src="images/menu/menu-autoclick.webp" alt="Auto"><span class="btn-text"></span>
+        </button>
+        <button id="rewarded-ad-btn" class="stage-btn menu-btn" data-i18n-title="title_rewarded_ad"
+          style="display:none; color: var(--neon-pink); border-color: var(--neon-pink);" title="Реклама (+15 💎)"><img
+            src="images/menu/menu-gift.webp" alt="Gift"></button>
+        <button id="daily-btn" class="stage-btn menu-btn" data-i18n-title="title_daily" title="Ежедневная награда"><img
+            src="images/menu/menu-daily.webp" alt="Daily"></button>
+        <button id="lootbox-btn" class="stage-btn menu-btn" data-i18n-title="title_lootbox"
+          title="Спортивная Сумка"><img src="images/menu/menu-lootbox.webp" alt="Lootbox"></button>
+        <button id="tournament-btn" class="stage-btn menu-btn" data-i18n-title="title_tournament" title="Турнир"><img
+            src="images/menu/menu-tournament.webp" alt="Tournament"><span class="btn-text"></span></button>
+        <button id="wardrobe-btn" class="stage-btn menu-btn" data-i18n-title="title_skins" title="Гардероб"><img
+            src="images/menu/menu-skins.webp" alt="Skins"></button>
+      </div>
+
+      <div id="tournament-arena"
+        style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; flex-direction: column; z-index: 10; pointer-events: none;">
+        <div id="boss-avatar-container"
+          style="flex: 1; display: flex; justify-content: center; align-items: flex-end; padding-bottom: 20px;">
+          <img id="boss-avatar" src=""
+            style="max-height: 200px; filter: drop-shadow(0 0 15px red); animation: breathe 2s infinite ease-in-out;">
+        </div>
+
+        <div id="tug-of-war-container"
+          style="height: 50px; width: 85%; margin: 0 auto; position: relative; overflow: visible; padding-top: 10px;">
+          <!-- Канат из 3 частей -->
+          <div
+            style="position: absolute; top: 50%; left: 0; width: 100%; height: 50px; transform: translateY(-50%); display: flex; align-items: center;">
+            <img src="images/rope_left.webp" style="height: 100%; object-fit: contain;">
+            <div
+              style="flex-grow: 1; height: 100%; background: url('images/rope_center.webp') repeat-x center; background-size: auto 40%;">
+            </div>
+            <img src="images/rope_right.webp" style="height: 100%; object-fit: contain;">
+          </div>
+
+          <!-- Бант -->
+          <img id="tug-of-war-marker" src="images/bow.webp"
+            style="position: absolute; top: 50%; left: 50%; height: 70px; transform: translate(-50%, -50%); transition: left 0.1s linear; z-index: 2; filter: drop-shadow(0 2px 5px rgba(0,0,0,0.5));">
+
+          <div
+            style="position: absolute; z-index: 3; width: 100%; left: 0; top: -35px; display: flex; justify-content: space-between; align-items: center; padding: 0 10px; font-weight: 800; font-size: 1.1rem; color: white; text-shadow: 2px 2px 4px #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000; box-sizing: border-box;">
+            <span data-i18n="boss_you">ВЫ</span>
+            <span id="boss-timer"
+              style="font-size: 1.4rem; color: #ffd700; text-shadow: 0 0 10px #ff8c00, 2px 2px 4px #000;">00:30</span>
+            <span id="boss-name" data-i18n="boss_name_label">БОСС</span>
+          </div>
+        </div>
+
+        <div style="flex: 1.5;"></div>
+      </div>
+      <canvas id="gym-canvas" width="600" height="500"></canvas>
+      <div id="combo-display"></div>
+      <div id="combo-bar">
+        <div id="combo-bar-fill"></div>
+      </div>
+    </section>
+
+    <aside id="sidebar">
+      <h2 data-i18n="title_store">🛒 МАГАЗИН</h2>
+
+      <div id="shop-filters">
+        <button class="filter-btn active" data-filter="all" data-i18n="tab_all">Все</button>
+        <button class="filter-btn" data-filter="click" data-i18n="tab_click">Клик</button>
+        <button class="filter-btn" data-filter="auto" data-i18n="tab_auto">Авто</button>
+        <button class="filter-btn" data-filter="special" data-i18n="tab_special">Особые</button>
+        <button class="filter-btn" data-filter="donat" style="color:var(--gold);" data-i18n="tab_donat">Донат</button>
+      </div>
+
+      <div id="shop-list" style="display: contents;"></div>
+      <div id="donate-list" style="display: none;"></div>
+
+      <div class="shop-card" id="card-prestige"
+        style="border-color: var(--gold); display: none; background: rgba(255,215,0,0.08);">
+        <div class="card-title" style="color: var(--gold);" data-i18n="prestige_title">🏅 Престиж</div>
+        <div class="card-desc"><span data-i18n="prestige_desc">Сбросить прогресс ради Золотых Монет.<br>Награда:</span>
+          <span id="prestige-reward" style="font-weight:bold; color:var(--gold);">0</span> <img src="images/coin.webp"
+            alt="Монета"
+            style="height: 1.1em; vertical-align: middle; transform: translateY(-0.15em); margin-left: 2px;">
+        </div>
+        <div class="card-meta">
+          <button class="buy-btn" id="btn-prestige" data-i18n="btn_prestige"
+            style="background: linear-gradient(135deg, var(--gold), #ff8c00); color: #000; width: 100%;">ПРЕСТИЖ</button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Stats Bar -->
+    <div id="stats-bar">
+      <div><span data-i18n="stat_click_label">Сила клика:</span> <span class="stat-val" id="stat-click">1</span></div>
+      <div><span data-i18n="stat_auto_label">Авто GP/с:</span> <span class="stat-val" id="stat-auto">0</span></div>
+      <div><span data-i18n="stat_tier_label">Уровень массы:</span> <span class="stat-val" id="stat-tier">1</span></div>
+      <div id="stat-coins-wrap" style="display: none; color: var(--gold);"><img src="images/coin.webp" alt="Монеты"
+          style="height: 1.1em; vertical-align: middle; transform: translateY(-0.15em); margin-right: 4px;"> <span
+          class="stat-val" id="stat-coins" style="color: var(--gold);">0</span></div>
+    </div>
+
+    <!-- Modals -->
+    <div id="help-overlay"
+      style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 9999; justify-content: center; align-items: center;">
+      <div id="help-modal"
+        style="background: var(--bg-card); padding: 25px; border-radius: 12px; border: 2px solid var(--border); width: 90%; max-width: 500px; text-align: left; max-height: 80vh; overflow-y: auto;">
+        <h2 style="margin-top:0; color:var(--neon-green); text-align:center;" data-i18n="help_title">❓ СПРАВКА</h2>
+        <div data-i18n="help_content" style="color:var(--text); font-size:1rem; line-height:1.5;"></div>
+        <button id="close-help" data-i18n="btn_close"
+          style="width:100%; padding:10px; margin-top:15px; background:var(--border); color:var(--text); border:none; border-radius:8px; cursor:pointer; font-weight:bold;">ЗАКРЫТЬ</button>
+      </div>
+    </div>
+
+    <div id="offline-modal"></div>
+    <div id="toast-container"></div>
+
+    <div id="achievements-overlay">
+      <div id="achievements-modal">
+        <h2 data-i18n="achievements_title">🏆 ДОСТИЖЕНИЯ</h2>
+        <div id="achievements-list"></div>
+        <button id="close-achievements" data-i18n="btn_close"
+          style="width:100%; padding:10px; margin-top:15px; background:var(--border); color:var(--text); border:none; border-radius:8px; cursor:pointer; font-weight:bold;">ЗАКРЫТЬ</button>
+      </div>
+    </div>
+
+    <div id="stats-overlay">
+      <div id="stats-modal">
+        <h2 data-i18n="stats_title">📊 СТАТИСТИКА</h2>
+        <div id="stats-list"></div>
+        <button id="close-stats" data-i18n="btn_close"
+          style="width:100%; padding:10px; margin-top:15px; background:var(--border); color:var(--text); border:none; border-radius:8px; cursor:pointer; font-weight:bold;">ЗАКРЫТЬ</button>
+      </div>
+    </div>
+
+    <div id="prestige-tree-overlay">
+      <div id="prestige-tree-modal" style="max-width: 900px; width: 95%;">
+        <h2 data-i18n="prestige_tree_title">🌳 ДЕРЕВО ПРЕСТИЖА</h2>
+        <div id="prestige-coins-display"><img src="images/coin.webp" alt="Монеты"
+            style="height: 1.2em; vertical-align: middle; transform: translateY(-0.15em); margin-right: 5px;"> 0</div>
+        <div id="prestige-tree-list" class="prestige-tree-container"></div>
+        <button id="close-prestige-tree" data-i18n="btn_close"
+          style="width:100%; padding:10px; margin-top:15px; background:var(--border); color:var(--text); border:none; border-radius:8px; cursor:pointer; font-weight:bold;">ЗАКРЫТЬ</button>
+      </div>
+    </div>
+
+    <div id="quests-overlay">
+      <div id="quests-modal">
+        <h2 data-i18n="quests_title">📝 АКТИВНЫЕ ЗАДАНИЯ</h2>
+        <div id="quests-list"></div>
+        <button id="close-quests" data-i18n="btn_close"
+          style="width:100%; padding:10px; margin-top:15px; background:var(--border); color:var(--text); border:none; border-radius:8px; cursor:pointer; font-weight:bold;">ЗАКРЫТЬ</button>
+      </div>
+    </div>
+
+    <div id="wardrobe-overlay">
+      <div id="wardrobe-modal">
+        <h2 data-i18n="wardrobe_title">👕 ГАРДЕРОБ</h2>
+        <div id="wardrobe-gems"><span data-i18n="wardrobe_gems">Алмазы:</span> <span id="wardrobe-gems-val">0</span> 💎
+        </div>
+        <div id="wardrobe-list" class="skin-grid"></div>
+        <button id="close-wardrobe" data-i18n="btn_close"
+          style="width:100%; padding:10px; margin-top:15px; background:var(--border); color:var(--text); border:none; border-radius:8px; cursor:pointer; font-weight:bold;">ЗАКРЫТЬ</button>
+      </div>
+    </div>
+
+    <div id="locations-overlay">
+      <div id="locations-modal">
+        <h2 data-i18n="locations_title">🗺️ СПОРТЗАЛЫ</h2>
+        <div id="locations-list" class="location-list"></div>
+        <button id="close-locations" data-i18n="btn_close"
+          style="width:100%; padding:10px; margin-top:15px; background:var(--border); color:var(--text); border:none; border-radius:8px; cursor:pointer; font-weight:bold;">ЗАКРЫТЬ</button>
+      </div>
+    </div>
+
+    <div id="lootbox-overlay">
+      <div id="lootbox-modal">
+        <h2 data-i18n="lootbox_title">🎒 Спортивная сумка</h2>
+        <p style="color:var(--text-dim); font-size:0.9rem;" data-i18n="lootbox_desc">Открой, чтобы получить случайный
+          скин, гемы или супер-бафф x5!</p>
+        <div id="lootbox-roulette-container"
+          style="position: relative; width: 100%; height: 120px; overflow: hidden; background: rgba(0,0,0,0.5); border-radius: 8px; margin: 15px 0; display: none;">
+          <div
+            style="position: absolute; top: 0; bottom: 0; left: 50%; width: 4px; background: #fff; transform: translateX(-50%); z-index: 10; box-shadow: 0 0 10px #fff;">
+          </div>
+          <div id="lootbox-roulette-tape"
+            style="display: flex; height: 100%; width: max-content; transition: transform 5s cubic-bezier(0.1, 0.8, 0.1, 1); transform: translateX(0);">
+          </div>
+        </div>
+        <div id="lootbox-bag" style="text-align: center; margin: 15px 0; cursor: pointer;"><img
+            src="images/lootbag.webp" alt="Lootbag" style="height: 120px; object-fit: contain;"></div>
+        <div id="lootbox-result" data-i18n="lootbox_ready">Готов испытать удачу?</div>
+        <button id="open-lootbox-btn" data-i18n="btn_open_gems"
+          style="width:100%; padding:15px; background:var(--neon-green); color:#000; border:none; border-radius:8px; cursor:pointer; font-weight:bold; font-size:1.1rem; margin-bottom:10px;">ОТКРЫТЬ
+          ЗА 25 💎</button>
+        <button id="open-lootbox-ad-btn"
+          style="width:100%; padding:15px; background:var(--neon-pink); color:#000; border:none; border-radius:8px; cursor:pointer; font-weight:bold; font-size:1.1rem; margin-bottom:10px; display:none;"><span
+            data-i18n="btn_open_ad">📺 🎁 ОТКРЫТЬ БЕСПЛАТНО</span> (<span id="lootbox-ad-count">3</span>)</button>
+        <button id="close-lootbox" data-i18n="btn_close"
+          style="width:100%; padding:10px; background:var(--border); color:var(--text); border:none; border-radius:8px; cursor:pointer; font-weight:bold;">ЗАКРЫТЬ</button>
+      </div>
+    </div>
+
+    <div id="confirm-overlay">
+      <div id="confirm-modal">
+        <h2 id="confirm-title" style="margin-top:0;" data-i18n="confirm_title">Подтверждение</h2>
+        <p id="confirm-text"
+          style="color:var(--text-dim); font-size:1rem; margin-bottom:20px; text-align:left; line-height:1.4;"></p>
+        <div style="display:flex; gap:10px;">
+          <button id="confirm-yes" data-i18n="btn_yes"
+            style="flex:1; padding:12px; background:var(--neon-green); color:#000; border:none; border-radius:8px; cursor:pointer; font-weight:bold; font-size:1rem;">Да</button>
+          <button id="confirm-no" data-i18n="btn_no"
+            style="flex:1; padding:12px; background:var(--border); color:var(--text); border:none; border-radius:8px; cursor:pointer; font-weight:bold; font-size:1rem;">Нет</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="daily-overlay">
+      <div id="daily-modal">
+        <h2 data-i18n="daily_title">🗓️ ЕЖЕДНЕВНЫЕ НАГРАДЫ</h2>
+        <p style="color:var(--text-dim); font-size:0.85rem; margin-bottom:15px;" data-i18n="daily_desc">Забирай халяву
+          каждый день! Заходи 7 дней без пропусков, чтобы получить уникальный скин Киборга. Пропустишь день — начнешь
+          сначала.</p>
+        <div id="daily-grid" class="daily-grid"></div>
+        <button id="daily-claim-btn" data-i18n="btn_claim">ЗАБРАТЬ</button>
+        <button id="close-daily" data-i18n="btn_close"
+          style="width:100%; padding:10px; margin-top:10px; background:var(--border); color:var(--text); border:none; border-radius:8px; cursor:pointer; font-weight:bold;">ЗАКРЫТЬ</button>
+      </div>
+    </div>
+
+    <!-- GEM SHOP OVERLAY -->
+    <div id="gem-shop-overlay">
+      <div id="gem-shop-modal">
+        <h2 data-i18n="gem_shop_title">💎 МАГАЗИН АЛМАЗОВ</h2>
+        <div id="gem-shop-balance">
+          <span data-i18n="gem_shop_balance">Баланс:</span> <span id="gem-shop-gems-val">0</span> 💎
+        </div>
+        <div id="gem-shop-list"></div>
+        <button id="close-gem-shop" data-i18n="btn_close"
+          style="width:100%; padding:10px; margin-top:15px; background:var(--border); color:var(--text); border:none; border-radius:8px; cursor:pointer; font-weight:bold;">ЗАКРЫТЬ</button>
+      </div>
+    </div>
+
+    <div id="settings-overlay"
+      style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 9999; justify-content: center; align-items: center;">
+      <div id="settings-modal"
+        style="background: var(--bg-card); padding: 25px; border-radius: 12px; border: 2px solid var(--border); width: 90%; max-width: 400px; text-align: center;">
+        <h2 style="margin-top:0; color:var(--neon-green);" data-i18n="settings_title">⚙️ НАСТРОЙКИ</h2>
+
+        <div style="margin: 25px 0; text-align: left;">
+          <label for="music-vol"
+            style="display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 10px;">
+            <span data-i18n="vol_music">Музыка:</span> <span id="music-vol-label">50%</span>
+          </label>
+          <input type="range" id="music-vol" min="0" max="100" value="50"
+            style="width: 100%; accent-color: var(--neon-green);">
+        </div>
+
+        <div style="margin: 25px 0; text-align: left;">
+          <label for="sfx-vol"
+            style="display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 10px;">
+            <span data-i18n="vol_sfx">Звуки:</span> <span id="sfx-vol-label">50%</span>
+          </label>
+          <input type="range" id="sfx-vol" min="0" max="100" value="50"
+            style="width: 100%; accent-color: var(--neon-blue);">
+        </div>
+
+        <div style="margin: 25px 0; text-align: left;">
+          <label style="display: flex; align-items: center; cursor: pointer;">
+            <input type="checkbox" id="low-power-mode"
+              style="width: 20px; height: 20px; margin-right: 10px; accent-color: var(--neon-green);">
+            <span style="font-weight: bold;" data-i18n="settings_low_power">Энергосбережение (Откл. видео-фоны)</span>
+          </label>
+        </div>
+
+        <p id="auth-desc" data-i18n="auth_desc"
+          style="color:var(--text-dim); font-size:0.85rem; margin-bottom:10px; display:none;">Авторизуйтесь, чтобы
+          сохранять прогресс в облаке и участвовать в рейтингах!</p>
+        <button id="auth-btn" data-i18n="btn_auth"
+          style="width:100%; padding:12px; background:var(--neon-blue); color:#000; border:none; border-radius:8px; cursor:pointer; font-weight:bold; font-size:1rem; margin-bottom:10px; display:none;">АВТОРИЗАЦИЯ</button>
+        <button id="close-settings" data-i18n="btn_close"
+          style="width:100%; padding:12px; background:var(--border); color:var(--text); border:none; border-radius:8px; cursor:pointer; font-weight:bold; font-size:1rem;">ЗАКРЫТЬ</button>
+      </div>
+    </div>
+
+    <!-- TOURNAMENT OVERLAY -->
+    <div id="tournament-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 9999; justify-content: center; align-items: center;">
+      <div style="background: var(--bg-card); padding: 25px; border-radius: 12px; border: 2px solid var(--border); width: 90%; max-width: 400px; text-align: center; position: relative;">
+        <h2 data-i18n="tournament_title" style="margin-top:0; color:var(--neon-green);">АРЕНА</h2>
+        <p data-i18n="tournament_desc" style="color:var(--text); font-size:1rem; margin-bottom: 20px;">Одолейте босса за 30 секунд! Во время боя очки не начисляются.</p>
+        <button id="start-boss-btn" data-i18n="btn_fight" style="width:100%; padding:15px; background:var(--neon-green); color:#000; border:none; border-radius:8px; cursor:pointer; font-weight:bold; font-size:1.1rem; margin-bottom:10px;">В БОЙ!</button>
+        <button id="close-tournament" data-i18n="btn_close" style="width:100%; padding:12px; background:var(--border); color:var(--text); border:none; border-radius:8px; cursor:pointer; font-weight:bold; font-size:1rem;">ЗАКРЫТЬ</button>
+      </div>
+    </div>
+
+    <!-- BATTLE PASS OVERLAY -->
+    <div id="bp-overlay">
+      <div id="bp-container">
+        <div id="bp-header">
+          <button class="close-btn" id="close-bp">&times;</button>
+          <h2 id="bp-main-title" data-i18n="title_bp">БОЕВОЙ ПРОПУСК</h2>
+          <div id="bp-progress-area">
+            <span id="bp-level-display">Уровень 1</span>
+            <div id="bp-progress-bar-wrap">
+              <div id="bp-progress-bar-fill"></div>
+            </div>
+            <span id="bp-stars-display">0 / 10</span>
+          </div>
+          <div id="bp-premium-buy-container">
+            <button id="buy-premium-btn" data-i18n="bp_buy_premium">
+              <img src="images/coin.webp" style="height:1.5em; vertical-align:middle; margin-right:5px;">
+              КУПИТЬ ПРЕМИУМ ПРОПУСК
+            </button>
+          </div>
+        </div>
+        <div id="bp-track-headers">
+          <div class="bp-header-free" data-i18n="bp_free">БЕСПЛАТНО</div>
+          <div class="bp-header-level" data-i18n="bp_header_level">УР</div>
+          <div class="bp-header-premium"><img src="images/coin.webp"
+              style="height:1em;vertical-align:middle;margin-right:3px;"><span data-i18n="bp_premium">ПРЕМИУМ</span>
+          </div>
+        </div>
+        <div id="bp-tiers-list"></div>
+      </div>
+    </div>
+
+    <!-- TUTORIAL OVERLAY -->
+    <div id="tutorial-overlay" style="display: none;">
+      <div id="tutorial-cutout" style="display: none;"></div>
+      <div id="tutorial-pointer">👆</div>
+      <div id="tutorial-dialog">
+        <h3 id="tutorial-title" data-i18n="tutorial_title">ОБУЧЕНИЕ</h3>
+        <p id="tutorial-text">Текст обучения...</p>
+        <div style="display:flex; justify-content:space-between; margin-top:15px; gap:10px;">
+          <button id="tutorial-skip-btn" data-i18n="btn_skip"
+            style="background:var(--border); color:var(--text); padding:8px 12px; border:none; border-radius:6px; cursor:pointer;">Пропустить</button>
+          <button id="tutorial-next-btn" data-i18n="btn_next"
+            style="background:var(--neon-blue); color:#000; padding:8px 16px; font-weight:bold; border:none; border-radius:6px; cursor:pointer;">Далее</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Окно подтверждения рекламы -->
+  <div id="ad-confirm-overlay"
+    style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 3000; justify-content: center; align-items: center; backdrop-filter: blur(5px);">
+    <div id="ad-confirm-modal"
+      style="background: var(--bg-card); padding: 20px; border-radius: 12px; border: 1px solid var(--border); width: 90%; max-width: 350px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+      <h2 id="ad-confirm-title" style="margin-top: 0; color: var(--gold); text-shadow: 1px 1px 2px black;"
+        data-i18n="ad_confirm_title">Просмотр рекламы</h2>
+      <p id="ad-confirm-desc" style="color: var(--text); margin-bottom: 20px; font-size: 1rem;"></p>
+      <div style="display: flex; gap: 10px;">
+        <button id="ad-confirm-yes" class="buy-btn"
+          style="flex: 1; padding: 12px; background: var(--neon-green); color: black; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; transform: none; box-shadow: 0 0 10px var(--neon-green);"
+          data-i18n="btn_watch">Смотреть</button>
+        <button id="ad-confirm-no" class="buy-btn"
+          style="flex: 1; padding: 12px; background: rgba(255,255,255,0.1); color: var(--text); border: 1px solid var(--border); border-radius: 8px; font-weight: bold; cursor: pointer; transform: none;"
+          data-i18n="btn_cancel">Отмена</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    window.addEventListener('error', function (e) {
+      if (e.message === 'Script error.' && e.lineno === 0) return;
+      alert('JS ERROR: ' + e.message + ' at ' + e.filename + ':' + e.lineno);
+    });
+  </script>
+  <script src="js/main.js?v=48"></script>
+</body>
+
+</html>
